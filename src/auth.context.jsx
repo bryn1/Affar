@@ -8,8 +8,8 @@ const TOKEN_KEY = 'affar.token'
 // only — the backend is the real authority (C25).
 const PERMS = {
   admin: ['admin-users', 'orders', 'invoices', 'payments', 'items', 'customers', 'suppliers', 'purchase'],
-  sales: ['orders', 'items', 'customers', 'payments'],
-  finance: ['invoices', 'payments', 'items', 'customers'],
+  sales: ['orders', 'items', 'customers'],
+  finance: ['invoices', 'payments', 'items'],
   procurement: ['purchase', 'suppliers', 'items'],
   customer: [],
 }

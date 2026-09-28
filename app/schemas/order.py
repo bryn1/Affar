@@ -83,7 +83,9 @@ class OrderOut(BaseModel):
 
     ``total`` is the server-summed line subtotals; ``status`` is one of the
     closed ORDER_STATUS set. ``tracking_ref`` is staff-only and not surfaced on
-    the public order read (rev-2 / C20).
+    the public order read (rev-2 / C20). ``tracking_id`` (MC 1395) IS surfaced
+    on this staff-only schema so staff can look up a track without DB access;
+    the public tracking route still keys on it and exposes no order internals.
     """
 
     id: int
@@ -92,3 +94,4 @@ class OrderOut(BaseModel):
     total: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
     created_at: str
     lines: list[OrderLineOut]
+    tracking_id: str | None = None

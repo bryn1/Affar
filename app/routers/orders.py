@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_role
 from app.database import get_session
+from app.models import DeliveryTrack
 from app.schemas.order import OrderIn, OrderOut, OrderPatch, OrderStatusPatch
 
 from app.services import orders as orders_service
@@ -33,6 +34,12 @@ router = APIRouter(prefix="/api/orders", tags=["orders"])
 ORDER_EDIT_ROLES = ["admin", "sales"]
 
 
+def _tracking_id_for(db: Session, order_id: int) -> str | None:
+    """Staff-visible tracking_id (MC 1395) — None while no track exists yet."""
+    track = db.query(DeliveryTrack).filter(DeliveryTrack.order_id == order_id).first()
+    return track.tracking_id if track else None
+
+
 @router.post("", response_model=OrderOut)
 def create_order(
     body: OrderIn,
@@ -40,7 +47,7 @@ def create_order(
     _auth=Depends(require_role(orders_service.ORDER_ROLES)),
 ) -> OrderOut:
     order = orders_service.create_order(db, body)
-    return _order_to_out(order)
+    return _order_to_out(order, _tracking_id_for(db, order.id))
 
 
 @router.get("", response_model=list[OrderOut])
@@ -48,7 +55,9 @@ def list_orders(
     db: Session = Depends(get_session),
     _auth=Depends(require_role(orders_service.ORDER_ROLES)),
 ) -> list[OrderOut]:
-    return [_order_to_out(o) for o in orders_service.list_orders(db)]
+    # One track query for the whole list (MC 1395) — no per-row N+1.
+    track_map = dict(db.query(DeliveryTrack.order_id, DeliveryTrack.tracking_id).all())
+    return [_order_to_out(o, track_map.get(o.id)) for o in orders_service.list_orders(db)]
 
 
 @router.get("/{order_id}", response_model=OrderOut)
@@ -58,7 +67,7 @@ def get_order(
     _auth=Depends(require_role(orders_service.ORDER_ROLES)),
 ) -> OrderOut:
     order = orders_service.get_order_or_404(db, order_id)
-    return _order_to_out(order)
+    return _order_to_out(order, _tracking_id_for(db, order.id))
 
 
 @router.patch("/{order_id}", response_model=OrderOut)
@@ -70,7 +79,7 @@ def patch_order(
 ) -> OrderOut:
     """Replace the line set of a DRAFT order (MC 1175.1). Prices re-snapshot."""
     order = orders_service.replace_draft_lines(db, order_id, body.lines)
-    return _order_to_out(order)
+    return _order_to_out(order, _tracking_id_for(db, order.id))
 
 
 @router.patch("/{order_id}/status", response_model=OrderOut)
@@ -87,7 +96,7 @@ def patch_order_status(
             detail=f"Unsupported status {body.status!r}; allowed: cancel",
         )
     order = orders_service.cancel_order(db, order_id)
-    return _order_to_out(order)
+    return _order_to_out(order, _tracking_id_for(db, order.id))
 
 
 @router.post("/{order_id}/confirm", response_model=OrderOut)
@@ -97,14 +106,15 @@ def confirm_order(
     _auth=Depends(require_role(orders_service.ORDER_ROLES)),
 ) -> OrderOut:
     order = orders_service.confirm_order(db, order_id)
-    return _order_to_out(order)
+    return _order_to_out(order, _tracking_id_for(db, order.id))
 
 
-def _order_to_out(order) -> OrderOut:
+def _order_to_out(order, tracking_id: str | None = None) -> OrderOut:
     """Project an ORM Order (with loaded lines) onto the OrderOut field set.
 
     ``total`` is the server-summed line subtotals; ``status`` is the closed
     ORDER_STATUS set; tracking_ref stays off the wire (staff-only, C20).
+    ``tracking_id`` (MC 1395) is staff-visible so staff can look up a track.
     """
     total = sum((ol.subtotal for ol in order.lines), Decimal("0.00")).quantize(
         Decimal("0.01")
@@ -115,6 +125,7 @@ def _order_to_out(order) -> OrderOut:
         status=order.status,
         total=total,
         created_at=order.created_at.astimezone(UTC).isoformat(),
+        tracking_id=tracking_id,
         lines=[
             {
                 "id": ol.id,

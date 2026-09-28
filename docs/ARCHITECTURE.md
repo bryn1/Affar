@@ -90,7 +90,7 @@ import without a strong `AFFAR_SECRET_KEY` — there is no fallback secret.
 
 The app is served at **https://sibbamala.com/affar/** via the vm106 hosting
 mirror. The deployed artifact is the built `dist/` bundle (assets
-`index-yD1UEfG8.js`, `index-D755bMaq.css` at master 4d225ea); the backend serves
+`index-3lA3NMGh.js`, `index-D755bMaq.css` at master b3a465e + MC 1395 fix round); the backend serves
 the SPA from `dist/` (`/assets` mount + SPA catch-all) under the `/affar/`
 prefix. `src/api.js` uses a relative `api` base so requests stay inside the
 `/affar/` prefix behind the reverse proxy. hosting.yaml sets `cachebust: all`;

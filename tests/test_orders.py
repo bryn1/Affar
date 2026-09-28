@@ -241,3 +241,31 @@ def test_confirm_once_only(client, seed_base):
     # second confirm -> 409 (already confirmed) and no double stock-out
     assert client.post(f"/api/orders/{oid}/confirm",
                        headers=_auth(client, "sales")).status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# MC 1395 — staff OrderOut exposes the generated tracking_id
+# ---------------------------------------------------------------------------
+
+def test_staff_order_out_exposes_tracking_id(client, seed_base):
+    body = {
+        "customer_id": seed_base["customer_id"],
+        "lines": [{"item_id": seed_base["laptop"], "qty": 1}],
+    }
+    created = client.post("/api/orders", headers=_auth(client, "sales"), json=body).json()
+    oid = created["id"]
+    # Before confirm: no track exists yet -> tracking_id is None.
+    assert created["tracking_id"] is None
+    assert client.post(f"/api/orders/{oid}/confirm",
+                       headers=_auth(client, "sales")).status_code == 200
+    detail = client.get(f"/api/orders/{oid}", headers=_auth(client, "sales")).json()
+    tid = detail["tracking_id"]
+    assert isinstance(tid, str) and len(tid) >= 16
+    # The exposed id is the SAME one the public lookup keys on.
+    pub = client.get(f"/api/tracking/{tid}")
+    assert pub.status_code == 200, pub.text
+    assert pub.json()["tracking_id"] == tid
+    # List surface carries it too.
+    listed = client.get("/api/orders", headers=_auth(client, "sales")).json()
+    match = [o for o in listed if o["id"] == oid]
+    assert match and match[0]["tracking_id"] == tid

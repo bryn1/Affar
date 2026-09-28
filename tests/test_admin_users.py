@@ -166,3 +166,14 @@ def test_demo_model_has_is_active_column_default_true():
         s.commit()
         assert u.is_active is True
         assert ROLES == ("admin", "sales", "finance", "procurement", "customer")
+
+
+def test_create_user_duplicate_username_409():
+    """MC 1395: an existing username is a clean 409, never a 500 IntegrityError."""
+    client, token = _seed_admin_and_client()
+    first = client.post("/api/admin/users", headers={"Authorization": "Bearer " + token},
+                        json={"username": "dup", "role": "sales", "password": "hemligt-pass"})
+    assert first.status_code == 200, first.text
+    second = client.post("/api/admin/users", headers={"Authorization": "Bearer " + token},
+                         json={"username": "dup", "role": "sales", "password": "annat-pass"})
+    assert second.status_code == 409, second.text

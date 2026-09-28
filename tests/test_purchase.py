@@ -244,3 +244,46 @@ def test_allowed_roles_create_200():
             headers=_auth_header(role),
         )
         assert resp.status_code == 200, f"{role}: {resp.text}"
+
+
+# ---------------------------------------------------------------------------
+# MC 1395 — PO lifecycle is forward-only (409 on backward transitions)
+# ---------------------------------------------------------------------------
+
+def test_backward_transition_received_to_draft_409():
+    sup, item = _seed_env(item_qty=10)
+    client = _make_app_client()
+    created = client.post(
+        "/api/purchase-orders",
+        json=_po_payload(sup.id, item.id, qty=5, unit_cost="8.00"),
+        headers=_auth_header("procurement"),
+    ).json()
+    po_id = created["id"]
+    assert client.patch(f"/api/purchase-orders/{po_id}/status",
+                        json={"status": "received"},
+                        headers=_auth_header("procurement")).status_code == 200
+    resp = client.patch(f"/api/purchase-orders/{po_id}/status",
+                        json={"status": "draft"},
+                        headers=_auth_header("procurement"))
+    assert resp.status_code == 409, resp.text
+    # status must NOT have been reverted
+    assert client.get(f"/api/purchase-orders/{po_id}",
+                      headers=_auth_header("procurement")).json()["status"] == "received"
+
+
+def test_backward_transition_ordered_to_draft_409():
+    sup, item = _seed_env()
+    client = _make_app_client()
+    created = client.post(
+        "/api/purchase-orders",
+        json=_po_payload(sup.id, item.id),
+        headers=_auth_header("admin"),
+    ).json()
+    po_id = created["id"]
+    assert client.patch(f"/api/purchase-orders/{po_id}/status",
+                        json={"status": "ordered"},
+                        headers=_auth_header("admin")).status_code == 200
+    resp = client.patch(f"/api/purchase-orders/{po_id}/status",
+                        json={"status": "draft"},
+                        headers=_auth_header("admin"))
+    assert resp.status_code == 409, resp.text

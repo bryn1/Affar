@@ -30,6 +30,13 @@ def list_users(db: Session) -> list[User]:
 
 def create_user(db: Session, username: str, role: str, password: str, email: str | None) -> User:
     """Persist and return a new User, hashing *password* with the repo's hash_password."""
+    # MC 1395: users.username is unique — a duplicate must be a clean 409,
+    # never an unhandled IntegrityError (500).
+    if db.query(User).filter(User.username == username).first() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Username {username!r} already exists",
+        )
     user = User(
         username=username,
         password_hash=hash_password(password),  # never store the plaintext

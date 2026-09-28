@@ -128,6 +128,19 @@ def set_po_status(db: Session, po_id: int, new_status: str) -> PurchaseOrder:
             detail=f"Purchase order {po_id} is cancelled; it cannot be {new_status!r}",
         )
 
+    # MC 1395: the lifecycle is forward-only (draft -> ordered -> received).
+    # A backward transition is a 409, mirroring the order/invoice transition
+    # guards — received stock-in must never be silently reverted.
+    rank = {s: i for i, s in enumerate(PO_STATUS)}
+    if rank[new_status] < rank[po.status]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Purchase order {po_id} is {po.status!r}; a backward "
+                f"transition to {new_status!r} is not allowed"
+            ),
+        )
+
     # MC 1175.4: draft -> ordered goes through the makulering-aware path in
     # purchase_edit (set_po_status must never re-order a cancelled PO).
     if new_status == "ordered" and po.status == "draft":
