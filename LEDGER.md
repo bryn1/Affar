@@ -37,7 +37,7 @@ publik auto-lane.
 - Inköp (suppliers, purchase orders)
 - Kundvy (spåra sin order via tracking-id)
 
-**Status:** Fas 1 pågår (plan → arkitektur → DA-granskning). Repot svarkor-ai/Affar är
+**Status:** Fas 1 pågår (plan → arkitektur → DA-granskning). Repot bryn1/Affar är
 tomt — bygger från noll.
 
 ## Fas 2b + tracking-write klar (2026-08-26)
