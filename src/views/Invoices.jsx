@@ -1,16 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../api.js'
 import { useAuth } from '../auth.context.jsx'
+import { useResource } from '../useResource.js'
 import DataTable from '../components/DataTable.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import Money from '../components/Money.jsx'
-
-function formatWhen(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' }).format(d)
-}
 
 const INVOICE_FLOW = { draft: ['issued'], issued: ['paid'], paid: [] }
 
@@ -19,20 +13,13 @@ const INVOICE_FLOW = { draft: ['issued'], issued: ['paid'], paid: [] }
 // cancellable (makulering — only after a full refund); paid keeps only
 // status/payment actions. Status transitions per contract.
 export default function Invoices() {
-  const { token, user } = useAuth()
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { token, can } = useAuth()
   const [notice, setNotice] = useState(null)
-  const canAdvance = user && ['admin', 'finance'].includes(user.role)
+  const canAdvance = can('invoices')
 
   const [items, setItems] = useState([])
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listInvoices(token).then((d) => setRows(d || [])).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [token])
-  useEffect(() => { reload() }, [reload])
+  const { rows, loading, error, setError, reload } = useResource(() => api.listInvoices(token), [token])
 
   // options for the edit form (only needed by editors)
   useEffect(() => {
@@ -289,6 +276,10 @@ export default function Invoices() {
           )}
           {payDetail && (
             <p className="muted small">
+              {/* Netto-summeringen är en enbart visuell klient-side float-summa
+                  (MC 11502 R3b): den räknar om betalningsraderna i flyttal för
+                  att visa läget — backend är behörig på alla belopp (C23) och
+                  ingen postering/avstämning läser detta värde. */}
               Netto registrerat: <Money value={payDetail.payments.reduce((s, p) => s + Number(p.amount), 0).toFixed(2)} /> av {payDetail.total}
             </p>
           )}

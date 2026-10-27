@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as api from '../api.js'
 import { useAuth } from '../auth.context.jsx'
+import { useResource } from '../useResource.js'
 import DataTable from '../components/DataTable.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import Money from '../components/Money.jsx'
@@ -10,21 +11,14 @@ const PO_FLOW = { draft: ['ordered'], ordered: ['received'], received: [] }
 // Purchase orders (C19). PurchaseOrderIn carries supplier + lines
 // with unit_cost ON THE WIRE (PO-scoped — unlike sales orders, C18).
 export default function Purchase() {
-  const { token, user } = useAuth()
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { token, can } = useAuth()
   const [notice, setNotice] = useState(null)
-  const canEdit = user && ['admin', 'procurement'].includes(user.role)
+  const canEdit = can('purchase')
 
   const [suppliers, setSuppliers] = useState([])
   const [items, setItems] = useState([])
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listPurchaseOrders(token).then((d) => setRows(d || [])).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [token])
-  useEffect(() => { reload() }, [reload])
+  const { rows, loading, error, setError, reload } = useResource(() => api.listPurchaseOrders(token), [token])
 
   useEffect(() => {
     if (!canEdit) return

@@ -1,6 +1,8 @@
 // ============================================================
 // Affär — typed fetch client (contract C24).
-// One function per backend contract. Everything except `track()`
+// Functions for the backend routes this SPA consumes (the backend carries
+// more routes than the UI calls — MC 11502 R3b pruned the callerless
+// wrappers). Everything except `track()`
 // (the single public lookup) sends `Authorization: Bearer <token>`.
 //
 // The backend is the authority on money/roles (C23/C25). This
@@ -80,7 +82,6 @@ export function listItems(token, { active } = {}) {
   const qs = active === undefined ? '' : '?active=' + active
   return request('/items' + qs, { token })
 }
-export function getItem(token, id) { return request('/items/' + id, { token }) }
 export function createItem(token, item) { return request('/items', { token, method: 'POST', body: item }) }
 export function updateItem(token, id, item) { return request('/items/' + id, { token, method: 'PUT', body: item }) }
 // MC 1175.5 — avaktivering (flaggan heter `active` på C8-ytan, ActivePatch på wire)
@@ -88,7 +89,6 @@ export function setItemActive(token, id, is_active) { return request('/items/' +
 
 // ---------- customers (C10) ----------
 export function listCustomers(token) { return request('/customers', { token }) }
-export function getCustomer(token, id) { return request('/customers/' + id, { token }) }
 export function createCustomer(token, customer) { return request('/customers', { token, method: 'POST', body: customer }) }
 export function updateCustomer(token, id, customer) { return request('/customers/' + id, { token, method: 'PUT', body: customer }) }
 // MC 1175.5 — avaktivering (ny order till avaktiverad kund -> 410)
@@ -96,7 +96,6 @@ export function setCustomerActive(token, id, is_active) { return request('/custo
 
 // ---------- suppliers (C12) ----------
 export function listSuppliers(token) { return request('/suppliers', { token }) }
-export function getSupplier(token, id) { return request('/suppliers/' + id, { token }) }
 export function createSupplier(token, supplier) { return request('/suppliers', { token, method: 'POST', body: supplier }) }
 export function updateSupplier(token, id, supplier) { return request('/suppliers/' + id, { token, method: 'PUT', body: supplier }) }
 // MC 1175.5 — avaktivering (ny PO till avaktiverad leverantör -> 410)
@@ -105,7 +104,6 @@ export function setSupplierActive(token, id, is_active) { return request('/suppl
 // ---------- orders (C14) — OrderIn carries NO price (server derives) ----------
 export function createOrder(token, orderIn) { return request('/orders', { token, method: 'POST', body: orderIn }) }
 export function listOrders(token) { return request('/orders', { token }) }
-export function getOrder(token, id) { return request('/orders/' + id, { token }) }
 // The ONLY order lifecycle transition the backend exposes is draft ->
 // confirmed via POST /orders/{id}/confirm (C14 rev-2). There is no
 // shipped/delivered transition endpoint — orders are matched to an
@@ -132,7 +130,6 @@ export function setInvoiceStatus(token, id, status) { return request('/invoices/
 
 // ---------- payments (C17) ----------
 export function recordPayment(token, invoiceId, paymentIn) { return request('/invoices/' + invoiceId + '/payment', { token, method: 'POST', body: paymentIn }) }
-export function reconcile(token, invoiceId) { return request('/invoices/' + invoiceId + '/reconcile', { token, method: 'POST' }) }
 export function listPayments(token) { return request('/payments', { token }) }
 // MC 1175.3 — makulering av felaktig betalning. Append-only: servern lägger
 // en NEGATIV rad kopplad till originalet (cancels_payment_id), aldrig raderat.
@@ -141,7 +138,6 @@ export function cancelPayment(token, paymentId) { return request('/payments/' + 
 // ---------- purchase (C19) ----------
 export function createPurchaseOrder(token, poIn) { return request('/purchase-orders', { token, method: 'POST', body: poIn }) }
 export function listPurchaseOrders(token) { return request('/purchase-orders', { token }) }
-export function getPurchaseOrder(token, id) { return request('/purchase-orders/' + id, { token }) }
 export function setPurchaseStatus(token, id, status) { return request('/purchase-orders/' + id + '/status', { token, method: 'PATCH', body: { status } }) }
 // MC 1175.4 — purchase rättbara. Replace the whole draft line set
 // ({item_id, qty, unit_cost} — cost is wire-supplied purchase-side, C18; the
@@ -152,8 +148,10 @@ export function updatePurchaseOrderLines(token, id, lines) { return request('/pu
 export function cancelPurchaseOrder(token, id) { return request('/purchase-orders/' + id + '/status', { token, method: 'PATCH', body: { status: 'cancel' } }) }
 
 // ---------- tracking (C21 rev-2 / C20) ----------
-// The ONLY tracking route is the public GET /api/tracking/{tracking_id}.
-// The backend exposes no create-delivery-track and no staff track surface.
+// The backend exposes TWO tracking routes (C21 rev-3, app/routers/tracking.py):
+// the public GET /api/tracking/{tracking_id} below, and a staff-only WRITE
+// POST /api/tracking/{tracking_id}/events (roles admin/sales/finance) that
+// appends a delivery event. No SPA page consumes the write route today.
 export function track(trackingId) { return request('/tracking/' + trackingId) }
 
 // ---------- admin users (MC 1120.1) — admin-role only ----------

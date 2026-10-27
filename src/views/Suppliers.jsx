@@ -1,22 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import * as api from '../api.js'
 import { useAuth } from '../auth.context.jsx'
+import { useResource } from '../useResource.js'
 import DataTable from '../components/DataTable.jsx'
 
 // Suppliers (C12) — list + create form. Swedish UI copy.
 export default function Suppliers() {
-  const { token, user } = useAuth()
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { token, can } = useAuth()
   const [notice, setNotice] = useState(null)
-  const canEdit = user && ['admin', 'procurement'].includes(user.role)
+  const canEdit = can('suppliers')
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listSuppliers(token).then((d) => setRows(d || [])).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [token])
-  useEffect(() => { reload() }, [reload])
+  const { rows, loading, error, setError, reload } = useResource(() => api.listSuppliers(token), [token])
 
   const [form, setForm] = useState({ name: '', contact: '', email: '', phone: '' })
   const [saving, setSaving] = useState(false)

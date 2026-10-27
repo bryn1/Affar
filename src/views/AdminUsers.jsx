@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import * as api from '../api.js'
 import { useAuth } from '../auth.context.jsx'
+import { useResource } from '../useResource.js'
 import DataTable from '../components/DataTable.jsx'
 
 // Admin-users (MC 1120.1) — list + create + role/deactivate management.
@@ -16,16 +17,9 @@ const ROLE_LABEL = {
 
 export default function AdminUsers() {
   const { token } = useAuth()
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listAdminUsers(token).then((d) => setRows(d || [])).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [token])
-  useEffect(() => { reload() }, [reload])
+  const { rows, loading, error, setError, reload } = useResource(() => api.listAdminUsers(token), [token])
 
   // ---- create form ----
   const [form, setForm] = useState({ username: '', role: 'sales', email: '', password: '' })

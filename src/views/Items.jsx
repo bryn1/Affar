@@ -8,13 +8,17 @@ import Money from '../components/Money.jsx'
 // the server; the form submits unit_price as a plain string and the
 // server normalises it (C23). Views only what it was asked to show.
 export default function Items() {
-  const { token, user } = useAuth()
+  const { token, can } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
 
-  const canEdit = user && ['admin', 'sales', 'procurement'].includes(user.role)
+  // Presentational edit gate (create/activate), MC 11502 R3b: the role set
+  // ['admin','sales','procurement'] is finance-excluding, so it routes
+  // through its own `items-edit` cap instead of the read-wide `items` cap
+  // (which finance holds). The backend's own item gates stay authoritative.
+  const canEdit = can('items-edit')
 
   // MC 1175.5: visa även avaktiverade artiklar — annars går de inte att återaktivera.
   // MC 1349.2 (F3): no `active` param at all — the backend default returns ALL

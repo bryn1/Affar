@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as api from '../api.js'
 import { useAuth } from '../auth.context.jsx'
+import { useResource } from '../useResource.js'
+import { formatWhen } from '../util/format.js'
 import DataTable from '../components/DataTable.jsx'
 import StatusBadge from '../components/StatusBadge.jsx'
 import Money from '../components/Money.jsx'
-
-function formatWhen(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat('sv-SE', { dateStyle: 'short', timeStyle: 'short' }).format(d)
-}
 
 // Only lifecycle transition the backend exposes: draft -> confirmed via
 // POST /orders/{id}/confirm (C14 rev-2). No shipped/delivered transition
@@ -21,12 +16,9 @@ function formatWhen(iso) {
 // C23/C14). Drafts are inline-editable (lines/qty) and cancellable;
 // confirmed+ orders keep only their lifecycle actions.
 export default function Orders() {
-  const { token, user } = useAuth()
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { token, can } = useAuth()
   const [notice, setNotice] = useState(null)
-  const canEdit = user && ['admin', 'sales'].includes(user.role)
+  const canEdit = can('orders')
 
   const [customers, setCustomers] = useState([])
   const [items, setItems] = useState([])
@@ -54,11 +46,7 @@ export default function Orders() {
   }, [token])
   useEffect(() => loadInvoices(), [loadInvoices])
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listOrders(token).then((d) => setRows(d || [])).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [token])
-  useEffect(() => { reload() }, [reload])
+  const { rows, loading, error, setError, reload } = useResource(() => api.listOrders(token), [token])
 
   // options for create form
   useEffect(() => {

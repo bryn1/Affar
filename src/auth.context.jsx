@@ -5,12 +5,14 @@ const TOKEN_KEY = 'affar.token'
 
 // Role → capabilities map for the 5 fleet roles (C-F / C4 ROLES).
 // Mirrors the architecture's coarse `require_role` gates; this is presentational
-// only — the backend is the real authority (C25).
+// only — the backend is the real authority (C25). `items-edit` is the catalog
+// EDIT surface (create / activate-deactivate), deliberately excluding finance,
+// while `items` is the catalog READ surface every staff role holds (MC 11502 R3b).
 const PERMS = {
-  admin: ['admin-users', 'orders', 'invoices', 'payments', 'items', 'customers', 'suppliers', 'purchase'],
-  sales: ['orders', 'items', 'customers'],
+  admin: ['admin-users', 'orders', 'invoices', 'payments', 'items', 'items-edit', 'customers', 'suppliers', 'purchase'],
+  sales: ['orders', 'items', 'items-edit', 'customers'],
   finance: ['invoices', 'payments', 'items'],
-  procurement: ['purchase', 'suppliers', 'items'],
+  procurement: ['purchase', 'suppliers', 'items', 'items-edit'],
   customer: [],
 }
 

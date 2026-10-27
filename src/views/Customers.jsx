@@ -1,22 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import * as api from '../api.js'
 import { useAuth } from '../auth.context.jsx'
+import { useResource } from '../useResource.js'
 import DataTable from '../components/DataTable.jsx'
 
 // Customers (C10) — list + create form. Swedish UI copy.
 export default function Customers() {
-  const { token, user } = useAuth()
-  const [rows, setRows] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { token, can } = useAuth()
   const [notice, setNotice] = useState(null)
-  const canEdit = user && ['admin', 'sales'].includes(user.role)
+  const canEdit = can('customers')
 
-  const reload = useCallback(() => {
-    setLoading(true)
-    api.listCustomers(token).then((d) => setRows(d || [])).catch((e) => setError(e.message)).finally(() => setLoading(false))
-  }, [token])
-  useEffect(() => { reload() }, [reload])
+  const { rows, loading, error, setError, reload } = useResource(() => api.listCustomers(token), [token])
 
   const [form, setForm] = useState({ name: '', email: '', phone: '', org_no: '' })
   const [saving, setSaving] = useState(false)

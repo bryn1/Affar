@@ -1,20 +1,13 @@
 import { useEffect, useState } from 'react'
 import * as api from '../api.js'
+import { formatWhen } from '../util/format.js'
 import StatusBadge from '../components/StatusBadge.jsx'
 
 // Public customer tracking view (C21/I5). Reachable at #/track and
 // #/track/{tracking_id}. Uses the UNAUTHENTICATED lookup only — the
 // response carries { tracking_id, status, events:[{status,at}] } and
 // deliberately NO note and NO carrier (rev-3).
-function formatWhen(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return new Intl.DateTimeFormat('sv-SE', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(d)
-}
+const WHEN_MEDIUM = { dateStyle: 'medium' }
 
 function TrackResult({ trackingId }) {
   const [data, setData] = useState(null)
@@ -78,7 +71,7 @@ function TrackResult({ trackingId }) {
             return (
               <li key={i} className={isDone ? 'done' : ''}>
                 <span className="dot" aria-hidden="true" />
-                <div className="when">{formatWhen(ev.at)}</div>
+                <div className="when">{formatWhen(ev.at, WHEN_MEDIUM)}</div>
                 <div className="what">
                   <StatusBadge status={ev.status} />
                 </div>
