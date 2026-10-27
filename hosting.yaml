@@ -8,7 +8,10 @@
     "which would leave apps/affar empty in the monorepo -> vm106 REFUSED app. These",
     "'!` negatives restore the served files, and the positives re-exclude dev cruft.",
     "Verified with mirror.resolve_spec()+resolve_subset(): served = run.py + app/** + dist/**",
-    "+ requirements.txt, no src/ / root index.html / package.json / tests."
+    "+ requirements.txt, no src/ / root index.html / package.json / tests.",
+    "MC 11516 (P4-6): the local-artifact excludes are now EXPLICIT (affar.db,",
+    "audit/scratch dirs, git dir, __pycache__) so the mirror policy is",
+    "self-contained and does not silently depend on the reconciler defaults."
   ],
   "name": "affar",
   "type": "service",
@@ -24,12 +27,16 @@
       "src/**",
       "/index.html",
       "vite.config.js",
-      "mock-server.mjs",
       "LEDGER.md",
       "package.json",
       "package-lock.json",
       "tests/**",
-      "node_modules/**"
+      "node_modules/**",
+      "affar.db",
+      ".audits/**",
+      ".tmp/**",
+      ".git/**",
+      "__pycache__/**"
     ],
     "cachebust": "all"
   }
