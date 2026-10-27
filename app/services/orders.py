@@ -77,9 +77,11 @@ def create_order(db: Session, payload) -> Order:
         )
 
     db.add(order)
-    db.commit()
-    db.refresh(order)
-    # Staff-only human label (rev-2 / C20). Not a public lookup key.
+    # MC 11516 P4 (audit F18): flush to get the PK, set the staff-only human
+    # label (rev-2 / C20, not a public lookup key), commit ONCE. The order
+    # row, its lines and the label land atomically — the old commit-then-
+    # commit could leave an unlabelled order behind if the second commit died.
+    db.flush()
     order.tracking_ref = f"ORD-{order.id}"
     db.commit()
     db.refresh(order)
@@ -207,8 +209,12 @@ def confirm_order(db: Session, order_id: int) -> Order:
             )
 
     # Apply the stock-out through the single owner of qty_on_hand (I2).
+    # MC 11516 P4 (audit F18): cross-service import at the call site (as
+    # invoicing/payment_edit already do); the catalog_adjust bridge fn went.
+    from app.services.catalog import adjust_stock
+
     for ol in order.lines:
-        catalog_adjust(db, ol.item_id, -ol.qty)
+        adjust_stock(db, ol.item_id, -ol.qty)
 
     order.status = "confirmed"
     order.updated_at = datetime.now(UTC)
@@ -223,13 +229,3 @@ def confirm_order(db: Session, order_id: int) -> Order:
     db.refresh(order)
     return order
 
-
-def catalog_adjust(db: Session, item_id: int, delta: int) -> None:
-    """Thin bridge to ``catalog.adjust_stock`` (keeps I2 the sole stock owner).
-
-    Imported locally to avoid a circular import at module load (catalog does
-    not import orders).
-    """
-    from app.services import catalog
-
-    catalog.adjust_stock(db, item_id, delta)

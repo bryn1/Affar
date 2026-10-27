@@ -133,6 +133,39 @@ def test_create_order_snapshots_price_and_total(client, seed_base):
         assert it.qty_on_hand == seed_base["stock_laptop"]
 
 
+def test_create_order_persists_order_and_lines_one_commit(client, seed_base):
+    """MC 11516 P4 (audit F18): create lands order + lines + label atomically.
+
+    The create path is flush-to-get-the-id + a single commit. This test reads
+    back through a FRESH session (not the response echo): the order row, its
+    two line rows and the derived tracking_ref label must all be persisted.
+    """
+    body = {
+        "customer_id": seed_base["customer_id"],
+        "lines": [
+            {"item_id": seed_base["laptop"], "qty": 1},
+            {"item_id": seed_base["monitor"], "qty": 2},
+        ],
+    }
+    r = client.post("/api/orders", headers=_auth(client, "sales"), json=body)
+    assert r.status_code == 200, r.text
+    order_id = r.json()["id"]
+
+    from sqlalchemy.orm import Session
+    from app.database import get_engine
+    from app.models import OrderLine
+
+    with Session(get_engine()) as s:
+        order = s.get(Order, order_id)
+        assert order is not None, "order row did not persist"
+        assert order.status == "draft"
+        assert order.tracking_ref == f"ORD-{order_id}"
+        lines = (
+            s.query(OrderLine).filter(OrderLine.order_id == order_id).all()
+        )
+        assert len(lines) == 2, "line rows did not persist"
+
+
 def test_create_order_unknown_customer_404(client, seed_base):
     body = {"customer_id": 99999, "lines": [{"item_id": seed_base["laptop"], "qty": 1}]}
     r = client.post("/api/orders", headers=_auth(client, "sales"), json=body)
