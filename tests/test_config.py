@@ -4,7 +4,10 @@ Contract C1 (architecture rev 1745):
     app/config.py — env config, hard-fail. Raises RuntimeError at import
     (validate_secret_key, I6) when SECRET_KEY is unset / too short /
     known-insecure. No fallback secret ever. Exposes:
-        DATABASE_URL              (env AFFAR_DATABASE_URL, default sqlite)
+        DATABASE_URL              (env AFFAR_DATABASE_URL, NO fallback —
+                                   RuntimeError at import when unset, MC 11516
+                                   rank 23: a silent ./affar.db default would
+                                   write the DB into the repo tree)
         SECRET_KEY                (env AFFAR_SECRET_KEY, hard-fail)
         JWT_ALGORITHM = "HS256"
         ACCESS_TOKEN_EXPIRE_MINUTES: int
@@ -23,9 +26,11 @@ import pytest
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _run_import_subprocess(extra_env: dict[str, str]) -> subprocess.CompletedProcess:
+def _run_import_subprocess(
+    extra_env: dict[str, str], *, drop: tuple[str, ...] = ("AFFAR_SECRET_KEY",)
+) -> subprocess.CompletedProcess:
     """Import app.config in a fresh interpreter; return the result."""
-    env = {k: v for k, v in os.environ.items() if k != "AFFAR_SECRET_KEY"}
+    env = {k: v for k, v in os.environ.items() if k not in drop}
     env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-c", "import app.config"],
@@ -98,3 +103,19 @@ def test_valid_secret_imports_cleanly():
     """A strong AFFAR_SECRET_KEY -> clean import, no crash."""
     result = _run_import_subprocess({"AFFAR_SECRET_KEY": "0123456789abcdefghijklmnop"})
     assert result.returncode == 0, result.stderr
+
+
+def test_missing_database_url_fails_at_import():
+    """MC 11516 rank 23: no AFFAR_DATABASE_URL -> RuntimeError at import.
+
+    The old silent default sqlite:///./affar.db wrote the DB into the repo
+    tree, contradicting run.py's StateDirectory doctrine. A valid secret key
+    is supplied so the failure under test is unambiguously the DB rule, and
+    the error text must name the env var the operator has to set.
+    """
+    result = _run_import_subprocess(
+        {"AFFAR_SECRET_KEY": "0123456789abcdefghijklmnop"},
+        drop=("AFFAR_SECRET_KEY", "AFFAR_DATABASE_URL"),
+    )
+    assert result.returncode != 0
+    assert "AFFAR_DATABASE_URL" in result.stderr

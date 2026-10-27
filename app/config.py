@@ -5,8 +5,11 @@ Supersedes      : the thin placeholder config that only defined DATABASE_URL.
 Contract        : C1 (architecture rev 1745), invariants I6/I7.
 
 Surface (module-level names the rest of the app imports):
-    DATABASE_URL                  env AFFAR_DATABASE_URL,
-                                  default "sqlite:///./affar.db"
+    DATABASE_URL                  env AFFAR_DATABASE_URL, NO fallback,
+                                  RuntimeError at import if unset (MC 11516
+                                  rank 23 — a silent ./affar.db default would
+                                  write the DB into the repo tree, which
+                                  run.py's StateDirectory doctrine forbids)
     SECRET_KEY                    env AFFAR_SECRET_KEY, no fallback,
                                   validate_secret_key() raises RuntimeError
                                   at import if unset / short / known-insecure
@@ -29,7 +32,19 @@ a secret value.
 
 import os
 
-DATABASE_URL = os.getenv("AFFAR_DATABASE_URL", "sqlite:///./affar.db")
+# MC 11516 rank 23 — no "sqlite:///./affar.db" fallback: a silent repo-tree
+# default contradicts run.py's own doctrine (production DB lives in the
+# systemd StateDirectory; the vm106 unit runs ProtectSystem=strict).
+DATABASE_URL = os.environ.get("AFFAR_DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "AFFAR_DATABASE_URL is not set. The production entrypoint run.py "
+        "derives it from the systemd StateDirectory before importing the app; "
+        "any other entrypoint (dev, scripts, tests) must export "
+        "AFFAR_DATABASE_URL explicitly, e.g. "
+        'export AFFAR_DATABASE_URL="sqlite:////tmp/affar-dev.db", pointing '
+        "at a location OUTSIDE the repo tree (never sqlite:///./affar.db)."
+    )
 
 # ---------------------------------------------------------------------------
 # SECRET_KEY (JWT signing key) — I6 hard-fail, verbatim bibliotek semantics.
