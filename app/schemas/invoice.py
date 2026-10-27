@@ -44,7 +44,9 @@ class InvoiceLinePatch(BaseModel):
 
     item_id: Optional[int] = Field(default=None, gt=0)
     description: Optional[str] = Field(default=None, min_length=1, max_length=500)
-    qty: int = Field(ge=1)
+    # Bounded above (MC-C3a follow-up, mirroring the order side MC-C2/11469
+    # P4-qty): an absurd qty is a schema 422 here, never a money-path crash.
+    qty: int = Field(ge=1, le=1_000_000)
 
 
 class InvoicePatch(BaseModel):

@@ -212,3 +212,19 @@ def test_role_gating(client):
     r = client.patch(f"/api/purchase-orders/{po['id']}/status",
                      json={"status": "cancel"})
     assert r.status_code == 401
+
+
+def test_huge_po_qty_is_422(client):
+    """MC-C3a follow-up — PurchaseOrderLineIn.qty carries the order-side bound.
+
+    10**30 is a schema 422 on create and on draft edit, never a
+    Decimal/money-path 500 (mirrors MC-C2/11469 P4-qty on the sales side).
+    """
+    sid, i1, _ = _seed(client)
+    body = {"supplier_id": sid,
+            "lines": [{"item_id": i1, "qty": 10**30, "unit_cost": "1.00"}]}
+    r = client.post("/api/purchase-orders", json=body, headers=_hdr())
+    assert r.status_code == 422, r.text
+    po = _make_po(client, sid, i1)
+    r = client.patch(f"/api/purchase-orders/{po['id']}", json=body, headers=_hdr())
+    assert r.status_code == 422, r.text

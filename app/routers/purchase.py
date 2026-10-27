@@ -19,6 +19,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
 from app.schemas.purchase import (
@@ -31,8 +32,7 @@ from app.schemas.purchase import (
 
 from app.services import purchase as purchase_service
 
-# C19 allowed roles. Customer deliberately absent.
-PURCHASE_ROLES = ["admin", "procurement"]
+# C19 allowed roles (app/roles.py, rank 11); customer deliberately absent.
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -41,7 +41,7 @@ router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 def create_po(
     body: PurchaseOrderIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(PURCHASE_ROLES)),
+    _auth=Depends(require_role(roles.PROCUREMENT)),
 ) -> PurchaseOrderOut:
     po = purchase_service.create_po(db, body)
     return PurchaseOrderOut(**po_to_dict(po))
@@ -50,7 +50,7 @@ def create_po(
 @router.get("", response_model=list[PurchaseOrderOut])
 def list_pos(
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(PURCHASE_ROLES)),
+    _auth=Depends(require_role(roles.PROCUREMENT)),
 ) -> list[PurchaseOrderOut]:
     return [PurchaseOrderOut(**po_to_dict(po)) for po in purchase_service.list_pos(db)]
 
@@ -59,7 +59,7 @@ def list_pos(
 def get_po(
     po_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(PURCHASE_ROLES)),
+    _auth=Depends(require_role(roles.PROCUREMENT)),
 ) -> PurchaseOrderOut:
     po = purchase_service.get_po_or_404(db, po_id)
     return PurchaseOrderOut(**po_to_dict(po))
@@ -70,7 +70,7 @@ def patch_po(
     po_id: int,
     body: PurchaseOrderPatch,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(PURCHASE_ROLES)),
+    _auth=Depends(require_role(roles.PROCUREMENT)),
 ) -> PurchaseOrderOut:
     """Replace the line set of a DRAFT purchase order (MC 1175.4).
 
@@ -87,7 +87,7 @@ def set_po_status(
     po_id: int,
     body: PurchaseOrderStatusIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(PURCHASE_ROLES)),
+    _auth=Depends(require_role(roles.PROCUREMENT)),
 ) -> PurchaseOrderOut:
     po = purchase_service.set_po_status(db, po_id, body.status)
     return PurchaseOrderOut(**po_to_dict(po))

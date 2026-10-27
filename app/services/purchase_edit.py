@@ -22,28 +22,14 @@ edit services T1 (orders) / T2 (invoices) established:
   sales orders). Idempotency: re-cancel is a 409.
 """
 
-from decimal import Decimal
-
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Item, PurchaseOrder, PurchaseOrderLine
+from app.models import PurchaseOrder, PurchaseOrderLine
+from app.services.lifecycle import require_draft_editable
+from app.services.line_items import item_or_404, resolve_items
+from app.services.money import line_money
 from app.services.purchase import get_po_or_404
-
-
-def _require_draft_editable(po: PurchaseOrder, verb: str) -> None:
-    """Guard: *verb* is allowed on a draft PO only (mirrors T1/T2)."""
-    if po.status == "draft":
-        return
-    if po.status == "cancelled":
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail=f"Purchase order {po.id} is cancelled; it cannot be {verb}ed",
-        )
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail=f"Purchase order {po.id} is {po.status!r}; only a draft can be {verb}ed",
-    )
 
 
 def replace_po_lines(db: Session, po_id: int, lines) -> PurchaseOrder:
@@ -55,28 +41,21 @@ def replace_po_lines(db: Session, po_id: int, lines) -> PurchaseOrder:
     the whole replacement back (404), same atomic rule as T1/T2.
     """
     po = get_po_or_404(db, po_id)
-    _require_draft_editable(po, "edit")
+    require_draft_editable(po.status, f"Purchase order {po.id}", "edit")
 
     # Resolve items once — O(n) lookups, uniform 404, atomic rollback.
-    item_ids = [ln.item_id for ln in lines]
-    item_map = {it.id: it for it in db.query(Item).filter(Item.id.in_(item_ids)).all()}
+    item_map = resolve_items(db, lines)
     new_lines = []
     for ln in lines:
-        if ln.item_id not in item_map:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Item {ln.item_id} not found",
-            )
+        item_or_404(db, item_map, ln.item_id)
         # Server-side money, Decimal-only (I7), from schema-validated values.
-        line_total = (Decimal(ln.qty) * ln.unit_cost).quantize(Decimal("0.01"))
         new_lines.append(
             PurchaseOrderLine(
                 po_id=po.id,
                 item_id=ln.item_id,
                 qty=ln.qty,
                 unit_cost=ln.unit_cost,
-                line_total=line_total,
+                line_total=line_money(ln.qty, ln.unit_cost),
             )
         )
 

@@ -15,6 +15,7 @@ order/purchase services on stock in/out.
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
 from app.schemas.item import ItemIn, ItemOut
@@ -22,8 +23,8 @@ from app.schemas.masterdata import ActivePatch
 
 from app.services import catalog  # internal service — owns qty_on_hand
 
-# C8 allowed roles for the catalog surface. Customer is deliberately absent.
-ITEM_ROLES = ["admin", "sales", "finance", "procurement"]
+# C8 allowed roles for the catalog surface (app/roles.py, rank 11);
+# customer is deliberately absent.
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/api/items", tags=["items"])
 def create_item(
     body: ItemIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ITEM_ROLES)),
+    _auth=Depends(require_role(roles.ALL_STAFF)),
 ) -> ItemOut:
     item = catalog.create_item(db, body)
     return ItemOut(**catalog_item_to_dict(item))
@@ -42,7 +43,7 @@ def create_item(
 def list_items(
     active: bool | None = Query(default=None),
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ITEM_ROLES)),
+    _auth=Depends(require_role(roles.ALL_STAFF)),
 ) -> list[ItemOut]:
     items = catalog.list_items(db, active_only=active)
     return [ItemOut(**catalog_item_to_dict(i)) for i in items]
@@ -52,7 +53,7 @@ def list_items(
 def get_item(
     item_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ITEM_ROLES)),
+    _auth=Depends(require_role(roles.ALL_STAFF)),
 ) -> ItemOut:
     item = catalog.get_item_or_404(db, item_id)
     return ItemOut(**catalog_item_to_dict(item))
@@ -63,7 +64,7 @@ def update_item(
     item_id: int,
     body: ItemIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ITEM_ROLES)),
+    _auth=Depends(require_role(roles.ALL_STAFF)),
 ) -> ItemOut:
     item = catalog.update_item(db, item_id, body)
     return ItemOut(**catalog_item_to_dict(item))
@@ -74,7 +75,7 @@ def patch_item_active(
     item_id: int,
     body: ActivePatch,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ITEM_ROLES)),
+    _auth=Depends(require_role(roles.ALL_STAFF)),
 ) -> ItemOut:
     """Activate/deactivate an article (MC 1175.5). Deactivated articles drop
     out of ``?active=1`` listings (the create-form picker source) while the

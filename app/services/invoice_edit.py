@@ -16,7 +16,8 @@ Split from services.invoicing (C16) so that module keeps its one concern
   draft -> issued -> paid. Refund-before-void: cancelled implies
   sum(payments) == 0.00, so finance cancels the wrong payments FIRST
   (T3: payment cancellation) and the invoice second. A cancelled invoice
-  rejects edits, lifecycle re-entry (410) and new payments (payments router).
+  rejects edits, lifecycle re-entry (410) and new payments (410 too — the
+  gate lives in services.payments.record_payment, MC 11499 rank 8).
 """
 
 from decimal import Decimal
@@ -24,8 +25,10 @@ from decimal import Decimal
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Invoice, InvoiceLine, Item
+from app.models import Invoice, InvoiceLine
 from app.services.invoicing import get_invoice_or_404
+from app.services.line_items import item_or_404, resolve_items
+from app.services.money import line_money
 
 
 def replace_invoice_lines(db: Session, invoice_id: int, lines) -> Invoice:
@@ -57,19 +60,12 @@ def replace_invoice_lines(db: Session, invoice_id: int, lines) -> Invoice:
     }
 
     # Resolve new item ids once — O(n) lookups, uniform 404, atomic rollback.
-    item_ids = [ln.item_id for ln in lines if ln.item_id is not None]
-    item_map = {it.id: it for it in db.query(Item).filter(Item.id.in_(item_ids)).all()}
+    item_map = resolve_items(db, lines)
 
     new_lines = []
     for ln in lines:
         if ln.item_id is not None:
-            item = item_map.get(ln.item_id)
-            if item is None:
-                db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Item {ln.item_id} not found",
-                )
+            item = item_or_404(db, item_map, ln.item_id)
             unit_price = old_prices.get(ln.item_id, Decimal(item.unit_price))
             description = ln.description or item.name
         else:
@@ -90,7 +86,7 @@ def replace_invoice_lines(db: Session, invoice_id: int, lines) -> Invoice:
                 ),
                 Decimal("0.00"),
             )
-        line_total = (Decimal(ln.qty) * unit_price).quantize(Decimal("0.01"))
+        line_total = line_money(ln.qty, unit_price)
         new_lines.append(
             InvoiceLine(
                 item_id=ln.item_id,
@@ -118,8 +114,9 @@ def cancel_invoice(db: Session, invoice_id: int) -> Invoice:
     Refund-before-void rule: a cancelled invoice must carry
     sum(payments) == 0.00, so finance cancels the wrong payments FIRST
     (T3) and the invoice second. Cancelled is terminal: 409 on re-cancel,
-    410 on edit/lifecycle re-entry (invoicing module), 409 on new payment
-    (payments router).
+    410 on edit/lifecycle re-entry (invoicing module) and on new payment
+    (services.payments.record_payment — one status for the rule, MC 11499
+    rank 8).
     """
     invoice = get_invoice_or_404(db, invoice_id)
     if invoice.status == "cancelled":

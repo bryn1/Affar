@@ -14,6 +14,7 @@ customer records. Returns schema objects (C23), never raw ORM.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
 from app.schemas.customer import CustomerIn, CustomerOut
@@ -21,8 +22,7 @@ from app.schemas.masterdata import ActivePatch
 
 from app.services import customer as customer_service
 
-# C9 allowed roles. Customer role deliberately absent.
-CUSTOMER_ROLES = ["admin", "sales"]
+# C9 allowed roles (app/roles.py, rank 11); customer role absent.
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/customers", tags=["customers"])
 def create_customer(
     body: CustomerIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(CUSTOMER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> CustomerOut:
     item = customer_service.create_customer(db, body)
     return CustomerOut(**customer_to_dict(item))
@@ -40,7 +40,7 @@ def create_customer(
 @router.get("", response_model=list[CustomerOut])
 def list_customers(
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(CUSTOMER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> list[CustomerOut]:
     return [CustomerOut(**customer_to_dict(c)) for c in customer_service.list_customers(db)]
 
@@ -49,7 +49,7 @@ def list_customers(
 def get_customer(
     customer_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(CUSTOMER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> CustomerOut:
     c = customer_service.get_customer_or_404(db, customer_id)
     return CustomerOut(**customer_to_dict(c))
@@ -60,7 +60,7 @@ def update_customer(
     customer_id: int,
     body: CustomerIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(CUSTOMER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> CustomerOut:
     c = customer_service.update_customer(db, customer_id, body)
     return CustomerOut(**customer_to_dict(c))
@@ -71,7 +71,7 @@ def patch_customer_active(
     customer_id: int,
     body: ActivePatch,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(CUSTOMER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> CustomerOut:
     """Activate/deactivate a customer (MC 1175.5). A deactivated customer can
     not take NEW orders (410 in services.orders); history is never touched."""

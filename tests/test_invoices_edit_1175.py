@@ -12,7 +12,8 @@ Rules under test:
     cancelled -> 410, unknown invoice/item -> 404, price smuggling -> 422.
   * Makulering (cancel) requires the invoice to be fully refunded first
     (net payments == 0.00); without refunds it is 409. It is terminal:
-    re-cancel 409, edit 410, lifecycle re-entry 410, new payment 409.
+    re-cancel 409, edit 410, lifecycle re-entry 410, new payment 410
+    (MC 11499 rank 8 — one status for the cancelled-invoice money rule).
   * finance/admin only; sales is 403 on both endpoints.
 """
 
@@ -240,7 +241,9 @@ def test_cancel_is_terminal(client, seed_base):
                         json={"status": "issued"}).status_code == 410
     assert client.patch(f"/api/invoices/{iid}", headers=h,
                         json={"lines": [{"item_id": 1, "qty": 1}]}).status_code == 410
-    assert _pay(client, iid, "100.00").status_code == 409
+    # MC 11499 rank 8: one status for the cancelled-invoice money rule —
+    # this path moved to the service and 409 became 410.
+    assert _pay(client, iid, "100.00").status_code == 410
 
 
 def test_cancel_unknown_invoice_404(client):
@@ -264,3 +267,15 @@ def test_existing_lifecycle_still_works(client, seed_base):
                         json={"status": "paid"})
     assert resp.status_code == 200
     assert resp.json()["status"] == "paid"
+
+
+def test_patch_huge_qty_is_422(client, seed_base):
+    """MC-C3a follow-up — InvoiceLinePatch.qty carries the order-side bound.
+
+    10**30 is a schema 422 here, never a Decimal/money-path 500 (mirrors the
+    MC-C2/11469 P4-qty pin on the order side).
+    """
+    inv = _issued_invoice(client, seed_base)
+    resp = client.patch(f"/api/invoices/{inv['id']}", headers=_auth(client, "finance"),
+                        json={"lines": [{"item_id": seed_base["laptop"], "qty": 10**30}]})
+    assert resp.status_code == 422, resp.text

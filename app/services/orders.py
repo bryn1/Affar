@@ -17,15 +17,13 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models import Customer, Item, Order, OrderLine
-from app.models.order import ORDER_STATUS
+from app.services.line_items import item_or_404, resolve_items
+from app.services.lifecycle import require_draft_editable
+from app.services.money import line_money
 
-# Staff who place and manage internal sales orders. The customer role is served
-# by a separate (later) self-service card and never touches this surface.
-ORDER_ROLES = ["admin", "sales", "finance"]
-
-# Allowed forward transitions on confirm. Anything but draft -> confirmed is not
-# initiatable by this card (shipped/delivered land with tracking).
-CONFIRMABLE = ("draft", "confirmed")
+# The staff sets for this surface live in app/roles.py (MC 11499 rank 11):
+# SALES_OPS reads/confirms, SALES_EDIT edits — the customer role is served by
+# a separate (later) self-service card and never touches this surface.
 
 
 def get_order_or_404(db: Session, order_id: int) -> Order:
@@ -66,23 +64,15 @@ def create_order(db: Session, payload) -> Order:
     order = Order(customer_id=customer.id, status="draft")
 
     # Resolve items once — O(n) lookups, uniform 404 for any unknown id.
-    item_ids = [line.item_id for line in payload.lines]
-    item_map = {it.id: it for it in db.query(Item).filter(Item.id.in_(item_ids)).all()}
+    item_map = resolve_items(db, payload.lines)
     for line in payload.lines:
-        item = item_map.get(line.item_id)
-        if item is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Item {line.item_id} not found",
-            )
-        snapshot = item.unit_price
-        subtotal = (Decimal(line.qty) * snapshot).quantize(Decimal("0.01"))
+        item = item_or_404(db, item_map, line.item_id)
         order.lines.append(
             OrderLine(
                 item_id=item.id,
                 qty=line.qty,
-                unit_price=snapshot,
-                subtotal=subtotal,
+                unit_price=item.unit_price,
+                subtotal=line_money(line.qty, item.unit_price),
             )
         )
 
@@ -106,28 +96,19 @@ def replace_draft_lines(db: Session, order_id: int, lines) -> Order:
     replacement is one transaction: an unknown item id rolls the edit back.
     """
     order = get_order_or_404(db, order_id)
-    _require_draft_editable(order, "edit")
+    require_draft_editable(order.status, "Order", "edit")
 
     # Resolve items once — O(n) lookups, uniform 404 for any unknown id.
-    item_ids = [line.item_id for line in lines]
-    item_map = {it.id: it for it in db.query(Item).filter(Item.id.in_(item_ids)).all()}
+    item_map = resolve_items(db, lines)
     new_lines = []
     for line in lines:
-        item = item_map.get(line.item_id)
-        if item is None:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Item {line.item_id} not found",
-            )
-        snapshot = item.unit_price
-        subtotal = (Decimal(line.qty) * snapshot).quantize(Decimal("0.01"))
+        item = item_or_404(db, item_map, line.item_id)
         new_lines.append(
             OrderLine(
                 item_id=item.id,
                 qty=line.qty,
-                unit_price=snapshot,
-                subtotal=subtotal,
+                unit_price=item.unit_price,
+                subtotal=line_money(line.qty, item.unit_price),
             )
         )
 
@@ -168,27 +149,24 @@ def cancel_order(db: Session, order_id: int) -> Order:
     return order
 
 
-def _require_draft_editable(order: Order, verb: str) -> None:
-    """Guard: *verb* is allowed on a draft only; other statuses explain why."""
-    if order.status == "draft":
-        return
-    if order.status == "cancelled":
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail=f"Order is cancelled; it cannot be {verb}ed",
-        )
-    raise HTTPException(
-        status_code=status.HTTP_409_CONFLICT,
-        detail=f"Order is {order.status!r}; only a draft can be {verb}ed",
-    )
-
-
 def list_orders(db: Session) -> list[Order]:
     """Return all orders, newest first."""
     return (
         db.query(Order)
         .order_by(Order.created_at.desc(), Order.id.desc())
         .all()
+    )
+
+
+def order_total(order: Order) -> Decimal:
+    """Server-summed line subtotals — the OrderOut ``total`` on the wire.
+
+    Moved out of the orders router (MC 11499 rank F9) so the projection is
+    pure mapping and the sum of server-owned subtotals (never client data)
+    lives with the lines that own them.
+    """
+    return sum((ol.subtotal for ol in order.lines), Decimal("0.00")).quantize(
+        Decimal("0.01")
     )
 
 

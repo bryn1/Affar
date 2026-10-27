@@ -9,7 +9,9 @@ and the cover check ``sum(payments) >= invoice.total`` compares Decimals.
 Recording a payment marks the invoice paid as soon as the accumulated sum
 reaches the total (C17: "marks invoice paid when sum(payments) >= invoice.total",
 all Decimal math). Reconcile is the explicit recheck endpoint: it sets
-status="paid" when covered, else raises 409 "still outstanding".
+status="paid" when covered, else raises 409 "still outstanding". A cancelled
+(makulerad) invoice accepts no new money — 410, the rule T2 declared (MC 1175.2)
+with the gate on the service path since MC 11499 rank 8.
 
 Stock single-owner (I2) and catalog are untouched here — payments only affect
 the invoice/payment tables.
@@ -25,8 +27,8 @@ from app.models import Invoice, Payment
 from app.models.finance import PAYMENT_METHODS
 from app.services.invoicing import get_invoice_or_404
 
-# Same staff set as invoicing (C17 lists [admin, finance]).
-PAYMENT_ROLES = ["admin", "finance"]
+# The staff set for this surface is app/roles.py FINANCE (MC 11499 rank 11);
+# C17 lists [admin, finance].
 
 
 def _paid_so_far(invoice: Invoice) -> Decimal:
@@ -44,6 +46,17 @@ def record_payment(
     known method is accepted (422). Returns the created Payment row.
     """
     invoice = get_invoice_or_404(db, invoice_id)
+
+    # MC 1175.2: a cancelled (makulerad) invoice is terminal — no new money.
+    # MC 11499 rank 8: this gate moved off the payments router onto the
+    # service path, and 410 is THE status for it — the same code
+    # payment_edit.cancel_payment already returns for the same rule (the
+    # router's 409 was the audit's F6 split).
+    if invoice.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=f"Invoice {invoice_id} is cancelled; payments are not accepted",
+        )
 
     # F1 (MC 1349.1): a NEW payment on an already-PAID invoice is rejected.
     # Overpayment on an *Issued* invoice stays allowed (documented, I3).

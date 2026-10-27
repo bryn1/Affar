@@ -7,9 +7,12 @@
 
 Recording is simulated (I3) — no gateway. The amount is validated in the schema
 (gt=0, 12,2) so the service always sees a Decimal. Reconcile reuses the invoice
-projection so the response shape matches C16's InvoiceOut.
+projection so the response shape matches C16's InvoiceOut — the projection is
+shared via app.projections (MC 11499 rank 9), never a router-private import.
 MC 1175.3: /payments/{id}/cancel is makulering — an append-only negative
 refund row linked back via cancels_payment_id (never a delete).
+MC 11499 rank 8: the cancelled-invoice money gate lives in the service
+(services.payments.record_payment, 410), not on this router.
 """
 
 from datetime import UTC
@@ -18,13 +21,14 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
+from app.projections import invoice_to_out
 from app.schemas.payment import PaymentIn, PaymentOut
 from app.schemas.invoice import InvoiceOut
 
 from app.services import payments as svc
-from app.routers.invoices import _invoice_to_out
 
 router = APIRouter(prefix="/api", tags=["payments"])
 
@@ -45,18 +49,8 @@ def create_payment(
     invoice_id: int,
     body: PaymentIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.PAYMENT_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> PaymentOut:
-    # MC 1175.2: a cancelled (makulerad) invoice is terminal — no new money.
-    from app.services.invoicing import get_invoice_or_404
-
-    if get_invoice_or_404(db, invoice_id).status == "cancelled":
-        from fastapi import HTTPException, status as http_status
-
-        raise HTTPException(
-            status_code=http_status.HTTP_409_CONFLICT,
-            detail=f"Invoice {invoice_id} is cancelled; payments are not accepted",
-        )
     payment = svc.record_payment(
         db, invoice_id, body.amount, body.method, body.date
     )
@@ -67,16 +61,16 @@ def create_payment(
 def reconcile(
     invoice_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.PAYMENT_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ):
     invoice = svc.reconcile(db, invoice_id)
-    return _invoice_to_out(invoice)
+    return invoice_to_out(invoice)
 
 
 @router.get("/payments", response_model=list[PaymentOut])
 def list_payments(
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.PAYMENT_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> list[PaymentOut]:
     return [_payment_to_out(p) for p in svc.list_payments(db)]
 
@@ -85,7 +79,7 @@ def list_payments(
 def cancel_payment(
     payment_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.PAYMENT_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> PaymentOut:
     """Makulera a recorded payment (MC 1175.3).
 

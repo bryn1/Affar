@@ -18,6 +18,7 @@ router's test file:
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
 from app.schemas.tracking import DeliveryTrackOut, TrackingEventIn, TrackingEventOut
@@ -25,9 +26,23 @@ from app.services import tracking as svc
 
 router = APIRouter(prefix="/api/tracking", tags=["tracking"])
 
-# Staff who may advance a delivery. Mirror the internal sales surfaces - the
-# customer role is read-only on tracking (public GET).
-STAFF_ROLES = ["admin", "sales", "finance"]
+# Staff who may advance a delivery: app/roles.py SALES_OPS (rank 11) — the
+# internal sales surfaces' set. The customer role is read-only on tracking
+# (public GET).
+
+
+def _track_to_out(db: Session, track) -> DeliveryTrackOut:
+    """Project a track + its ordered public events onto DeliveryTrackOut.
+
+    The staff ``note`` and internal ids never enter this projection (C20).
+    """
+    events = svc.ordered_public_events(db, track)
+    return DeliveryTrackOut(
+        tracking_id=track.tracking_id,
+        carrier=track.carrier,
+        status=events[-1]["status"] if events else "no-events",
+        events=[TrackingEventOut(**e) for e in events],
+    )
 
 
 @router.get("/{tracking_id}", response_model=DeliveryTrackOut)
@@ -39,14 +54,7 @@ def public_track(tracking_id: str, db: Session = Depends(get_session)) -> Delive
     public timeline (status + at) and the carrier.
     """
     track = svc.get_track_by_public_id_or_404(db, tracking_id)
-    events = svc.ordered_public_events(db, track)
-
-    return DeliveryTrackOut(
-        tracking_id=track.tracking_id,
-        carrier=track.carrier,
-        status=events[-1]["status"] if events else "no-events",
-        events=[TrackingEventOut(**e) for e in events],
-    )
+    return _track_to_out(db, track)
 
 
 @router.post(
@@ -58,7 +66,7 @@ def append_event(
     tracking_id: str,
     body: TrackingEventIn,
     db: Session = Depends(get_session),
-    _staff: dict = Depends(require_role(STAFF_ROLES)),
+    _staff: dict = Depends(require_role(roles.SALES_OPS)),
 ) -> DeliveryTrackOut:
     """Append one tracking event to a delivery (staff WRITE surface, C21 rev-3).
 
@@ -73,10 +81,4 @@ def append_event(
     svc.append_track_event(db, track, body.status, body.note)
     db.commit()
 
-    events = svc.ordered_public_events(db, track)
-    return DeliveryTrackOut(
-        tracking_id=track.tracking_id,
-        carrier=track.carrier,
-        status=events[-1]["status"] if events else "no-events",
-        events=[TrackingEventOut(**e) for e in events],
-    )
+    return _track_to_out(db, track)

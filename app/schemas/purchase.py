@@ -1,7 +1,8 @@
 """Purchase-order wire schemas (C18/C19 + C23).
 
 C23 pins every money field to Decimal: PurchaseOrderLineIn.unit_cost is
-Decimal, ge=0, max_digits=12, decimal_places=2 (rev-2, C19); qty > 0.
+Decimal, ge=0, max_digits=12, decimal_places=2 (rev-2, C19); qty is bounded
+1..1_000_000 (MC-C3a follow-up, mirroring the order side).
 line_total is computed SERVER-SIDE by the service from the validated values —
 never taken from the wire. Everything the router returns is a schema object,
 never a raw ORM object.
@@ -29,7 +30,10 @@ class PurchaseOrderLineIn(BaseModel):
     _accept_comma_decimals = money_comma_validator("unit_cost")
 
     item_id: int = Field(gt=0)
-    qty: int = Field(gt=0)
+    # Bounded above (MC-C3a follow-up, mirroring the order side MC-C2/11469
+    # P4-qty): an absurd qty is a schema 422 here, never a Decimal/money-path
+    # crash later (10**30 * unit_cost overflows the service arithmetic).
+    qty: int = Field(ge=1, le=1_000_000)
     # Negotiated per-supplier cost — legitimately PO-scoped (C18). Bounded:
     # Decimal, non-negative (refutation 1 purchase-side fix), (12,2).
     unit_cost: Decimal = Field(ge=0, max_digits=12, decimal_places=2)

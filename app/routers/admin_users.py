@@ -12,6 +12,7 @@ password_hash. Role values are validated against the closed ROLES set (C-F).
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
 from app.schemas.admin_user import AdminUserCreate, AdminUserOut, AdminUserUpdate
@@ -20,13 +21,12 @@ from app.services import admin_users as admin_users_service
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 
-ADMIN_ROLES = ["admin"]
 
 
 @router.get("", response_model=list[AdminUserOut])
 def list_users(
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ADMIN_ROLES)),
+    _auth=Depends(require_role(roles.ADMIN_ONLY)),
 ) -> list[AdminUserOut]:
     return [
         AdminUserOut(**user_to_dict(u)) for u in admin_users_service.list_users(db)
@@ -37,7 +37,7 @@ def list_users(
 def create_user(
     body: AdminUserCreate,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ADMIN_ROLES)),
+    _auth=Depends(require_role(roles.ADMIN_ONLY)),
 ) -> AdminUserOut:
     user = admin_users_service.create_user(
         db,
@@ -53,7 +53,7 @@ def create_user(
 def get_user(
     user_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ADMIN_ROLES)),
+    _auth=Depends(require_role(roles.ADMIN_ONLY)),
 ) -> AdminUserOut:
     user = admin_users_service.get_user_or_404(db, user_id)
     return AdminUserOut(**user_to_dict(user))
@@ -64,7 +64,7 @@ def update_user(
     user_id: int,
     body: AdminUserUpdate,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ADMIN_ROLES)),
+    _auth=Depends(require_role(roles.ADMIN_ONLY)),
 ) -> AdminUserOut:
     user = admin_users_service.update_user(
         db,

@@ -23,13 +23,14 @@ from sqlalchemy.orm import Session
 
 from app.models import Invoice, InvoiceLine, Order
 from app.models.finance import INVOICE_STATUS
+from app.services.money import line_money
 
 # Lifecycle states ranked forward (draft -> issued -> paid). "cancelled" is
 # deliberately NOT ranked: it is terminal and never re-enterable (MC 1175.2).
 _INVOICE_LIFECYCLE: tuple[str, ...] = ("draft", "issued", "paid")
 
-# Staff who issue and manage invoices. Payments/reconcile share this set (C17).
-INVOICE_ROLES = ["admin", "finance"]
+# The staff set for this surface is app/roles.py FINANCE (MC 11499 rank 11);
+# payments/reconcile share it (C17).
 
 
 def get_invoice_or_404(db: Session, invoice_id: int) -> Invoice:
@@ -81,9 +82,7 @@ def create_invoice_from_order(db: Session, order_id: int) -> Invoice:
     # Copy each order line as an invoice line; total = sum of line_totals.
     running_total = Decimal("0.00")
     for ol in order.lines:
-        line_total = (Decimal(ol.qty) * Decimal(ol.unit_price)).quantize(
-            Decimal("0.01")
-        )
+        line_total = line_money(ol.qty, ol.unit_price)
         running_total += line_total
         db.add(
             InvoiceLine(

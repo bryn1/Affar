@@ -10,19 +10,18 @@ MC 1175.2: an issued (not yet paid) invoice is line-editable — the wire
 carries {item_id?, description?, qty} only, prices stay server-owned (C14).
 
 This surface only projects ORM rows onto InvoiceOut — it never returns raw ORM
-objects. Issue (create from confirmed order) and status transitions live in the
+objects; the projection itself is shared with the payments router via
+app.projections (MC 11499 rank 9). Issue (create from confirmed order) and status transitions live in the
 service layer; payments/reconcile are the C17 router under /api/invoices/{id}/.
 """
-
-from datetime import UTC
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
-from app.models import Invoice
+from app.projections import invoice_to_out
 from app.schemas.invoice import InvoiceOut, InvoicePatch, InvoiceStatusIn
 
 from app.services import invoicing as svc
@@ -34,28 +33,28 @@ router = APIRouter(prefix="/api", tags=["invoices"])
 def create_invoice(
     order_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.INVOICE_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> InvoiceOut:
     invoice = svc.create_invoice_from_order(db, order_id)
-    return _invoice_to_out(invoice)
+    return invoice_to_out(invoice)
 
 
 @router.get("/invoices", response_model=list[InvoiceOut])
 def list_invoices(
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.INVOICE_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> list[InvoiceOut]:
-    return [_invoice_to_out(i) for i in svc.list_invoices(db)]
+    return [invoice_to_out(i) for i in svc.list_invoices(db)]
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceOut)
 def get_invoice(
     invoice_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.INVOICE_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> InvoiceOut:
     invoice = svc.get_invoice_or_404(db, invoice_id)
-    return _invoice_to_out(invoice)
+    return invoice_to_out(invoice)
 
 
 @router.patch("/invoices/{invoice_id}", response_model=InvoiceOut)
@@ -63,7 +62,7 @@ def patch_invoice(
     invoice_id: int,
     body: InvoicePatch,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.INVOICE_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> InvoiceOut:
     """Replace the line set of a NOT-YET-PAID invoice (MC 1175.2).
 
@@ -72,7 +71,7 @@ def patch_invoice(
     from app.services import invoice_edit
 
     invoice = invoice_edit.replace_invoice_lines(db, invoice_id, body.lines)
-    return _invoice_to_out(invoice)
+    return invoice_to_out(invoice)
 
 
 @router.patch("/invoices/{invoice_id}/status", response_model=InvoiceOut)
@@ -80,50 +79,7 @@ def patch_status(
     invoice_id: int,
     body: InvoiceStatusIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(svc.INVOICE_ROLES)),
+    _auth=Depends(require_role(roles.FINANCE)),
 ) -> InvoiceOut:
     invoice = svc.update_status(db, invoice_id, body.status)
-    return _invoice_to_out(invoice)
-
-
-def _invoice_to_out(invoice: Invoice) -> InvoiceOut:
-    """Project an ORM Invoice (with loaded lines + payments) onto the wire set.
-
-    total is the server-stored Decimal; timestamps converted to UTC ISO.
-    """
-    return InvoiceOut(
-        id=invoice.id,
-        order_id=invoice.order_id,
-        invoice_no=invoice.invoice_no,
-        status=invoice.status,
-        total=Decimal(invoice.total).quantize(Decimal("0.01")),
-        issued_at=(
-            invoice.issued_at.astimezone(UTC).isoformat()
-            if invoice.issued_at else None
-        ),
-        paid_at=(
-            invoice.paid_at.astimezone(UTC).isoformat()
-            if invoice.paid_at else None
-        ),
-        lines=[
-            {
-                "id": ln.id,
-                "item_id": ln.item_id,
-                "description": ln.description,
-                "qty": ln.qty,
-                "unit_price": Decimal(ln.unit_price).quantize(Decimal("0.01")),
-                "line_total": Decimal(ln.line_total).quantize(Decimal("0.01")),
-            }
-            for ln in invoice.lines
-        ],
-        payments=[
-            {
-                "id": p.id,
-                "invoice_id": p.invoice_id,
-                "amount": Decimal(p.amount).quantize(Decimal("0.01")),
-                "method": p.method,
-                "paid_at": p.paid_at.astimezone(UTC).isoformat(),
-            }
-            for p in invoice.payments
-        ],
-    )
+    return invoice_to_out(invoice)

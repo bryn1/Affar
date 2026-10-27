@@ -12,15 +12,16 @@ router only projects ORM rows onto the OrderOut wire schema — never returns ra
 ORM objects and never accepts unit_price from the client. Stock is touched ONLY
 by ``catalog.adjust_stock`` via the service (I2 single-owner rule) on confirm.
 MC 1175.1: drafts are editable (replace lines, cancel) — both draft-only, both
-price-blind (C14 holds through the edit path).
+price-blind (C14 holds through the edit path). MC 11499 rank F9: the wire
+``total`` is summed by services.orders.order_total, not here.
 """
 
-from datetime import UTC, datetime
-from decimal import Decimal
+from datetime import UTC
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import roles
 from app.auth import require_role
 from app.database import get_session
 from app.models import DeliveryTrack
@@ -30,8 +31,8 @@ from app.services import orders as orders_service
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
-# Edit surface is narrower than read: finance reads and confirms, never edits.
-ORDER_EDIT_ROLES = ["admin", "sales"]
+# Role sets are app/roles.py constants (rank 11): SALES_OPS reads/confirms,
+# SALES_EDIT edits — finance reads and confirms, never edits.
 
 
 def _tracking_id_for(db: Session, order_id: int) -> str | None:
@@ -44,7 +45,7 @@ def _tracking_id_for(db: Session, order_id: int) -> str | None:
 def create_order(
     body: OrderIn,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(orders_service.ORDER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_OPS)),
 ) -> OrderOut:
     order = orders_service.create_order(db, body)
     return _order_to_out(order, _tracking_id_for(db, order.id))
@@ -53,7 +54,7 @@ def create_order(
 @router.get("", response_model=list[OrderOut])
 def list_orders(
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(orders_service.ORDER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_OPS)),
 ) -> list[OrderOut]:
     # One track query for the whole list (MC 1395) — no per-row N+1.
     track_map = dict(db.query(DeliveryTrack.order_id, DeliveryTrack.tracking_id).all())
@@ -64,7 +65,7 @@ def list_orders(
 def get_order(
     order_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(orders_service.ORDER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_OPS)),
 ) -> OrderOut:
     order = orders_service.get_order_or_404(db, order_id)
     return _order_to_out(order, _tracking_id_for(db, order.id))
@@ -75,7 +76,7 @@ def patch_order(
     order_id: int,
     body: OrderPatch,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ORDER_EDIT_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> OrderOut:
     """Replace the line set of a DRAFT order (MC 1175.1). Prices re-snapshot."""
     order = orders_service.replace_draft_lines(db, order_id, body.lines)
@@ -87,7 +88,7 @@ def patch_order_status(
     order_id: int,
     body: OrderStatusPatch,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(ORDER_EDIT_ROLES)),
+    _auth=Depends(require_role(roles.SALES_EDIT)),
 ) -> OrderOut:
     """Status transition on an order — currently ``cancel`` only (MC 1175.1)."""
     if body.status != "cancel":
@@ -103,7 +104,7 @@ def patch_order_status(
 def confirm_order(
     order_id: int,
     db: Session = Depends(get_session),
-    _auth=Depends(require_role(orders_service.ORDER_ROLES)),
+    _auth=Depends(require_role(roles.SALES_OPS)),
 ) -> OrderOut:
     order = orders_service.confirm_order(db, order_id)
     return _order_to_out(order, _tracking_id_for(db, order.id))
@@ -116,14 +117,11 @@ def _order_to_out(order, tracking_id: str | None = None) -> OrderOut:
     ORDER_STATUS set; tracking_ref stays off the wire (staff-only, C20).
     ``tracking_id`` (MC 1395) is staff-visible so staff can look up a track.
     """
-    total = sum((ol.subtotal for ol in order.lines), Decimal("0.00")).quantize(
-        Decimal("0.01")
-    )
     return OrderOut(
         id=order.id,
         customer_id=order.customer_id,
         status=order.status,
-        total=total,
+        total=orders_service.order_total(order),
         created_at=order.created_at.astimezone(UTC).isoformat(),
         tracking_id=tracking_id,
         lines=[
