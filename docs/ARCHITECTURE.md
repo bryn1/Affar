@@ -15,15 +15,20 @@ app/                  FastAPI backend
   routers/            HTTP layer: auth, items, orders, invoices, payments,
                       customers, purchase, suppliers, tracking, reports, admin_users
   services/           business logic (invoicing, payments, purchase, reports,
-                      *_edit re-open/edit flows, catalog, tracking, admin_users)
+                      *_edit re-open/edit flows, catalog, customer, supplier,
+                      tracking, admin_users) + shared lifecycle guard,
+                      line-item resolve/replace and money helpers (MC 11499)
   models/             SQLAlchemy models (user, item, order, invoice/finance,
                       payment, customer, supplier, purchase, tracking, base)
   schemas/            Pydantic schemas per domain (+ money.py decimal handling)
+  roles.py            the six named role sets feeding require_role (MC 11499)
+  projections.py      shared ORM->schema projections (invoice/payment to out)
   auth.py             bcrypt hashing, HS256 JWT, require_role dependency
   demo_guard.py       DemoWriteGuard middleware (write gating for the demo)
   migrations.py       idempotent startup ALTER TABLE migrations (no Alembic)
   database.py         engine/session, SQLite-only path resolution, init_db
   config.py           env config, hard-fails without AFFAR_SECRET_KEY (I6)
+                      and without AFFAR_DATABASE_URL (MC 11516 rank 23)
   main.py             create_app() factory, ROUTES list, SPA mount of dist/
   seed.py             seed_if_empty() demo data on startup
 src/                  React/Vite SPA
@@ -36,7 +41,6 @@ src/                  React/Vite SPA
 dist/                 built Vite bundle — the deployed artifact (served by backend)
 tests/                pytest suite (backend contract, run.py wiring, migrations)
 run.py                entrypoint: port resolution, secret self-provision, uvicorn boot
-mock-server.mjs       dev-only mock API + static server (NOT part of the deliverable)
 hosting.yaml          vm106 mirror spec (service, port 8110, cachebust)
 index.html, vite.config.js, package.json, package-lock.json   frontend build inputs
 requirements.txt      exact backend pins
@@ -51,9 +55,10 @@ affar.db              local dev SQLite (repo copy; live DB lives in StateDirecto
   fast), self-provisions `AFFAR_SECRET_KEY` into the systemd StateDirectory
   (`$STATE_DIRECTORY/secret.key`, 0600; local fallback `~/.local/state/affar`),
   defaults `AFFAR_DATABASE_URL` to the StateDirectory SQLite file, then boots
-  uvicorn on `0.0.0.0:$PORT` with `create_app()`.
-- `mock-server.mjs` is a dev-only aid (port 4173 default) to vision-check the UI;
-  never deployed.
+  uvicorn on `0.0.0.0:$PORT` with `create_app()`. Dev entrypoints other than
+  run.py must export `AFFAR_DATABASE_URL` themselves — `app/config.py`
+  fail-fasts at import when it is unset (MC 11516 rank 23), never defaulting
+  the DB into the repo tree.
 - `hosting.yaml` declares `type: service`, `root: apps/affar`, `port: 8110`,
   mirror excludes that keep `run.py`, `app/**`, `dist/**`, `requirements.txt`
   served and drop dev cruft; `cachebust: all`.
@@ -89,9 +94,14 @@ import without a strong `AFFAR_SECRET_KEY` — there is no fallback secret.
 ## Live deployment fact
 
 The app is served at **https://sibbamala.com/affar/** via the vm106 hosting
-mirror. The deployed artifact is the built `dist/` bundle (assets
-`index-3lA3NMGh.js`, `index-D755bMaq.css` at master b3a465e + MC 1395 fix round); the backend serves
-the SPA from `dist/` (`/assets` mount + SPA catch-all) under the `/affar/`
-prefix. `src/api.js` uses a relative `api` base so requests stay inside the
-`/affar/` prefix behind the reverse proxy. hosting.yaml sets `cachebust: all`;
-cachebust `?v=` query params are appended to asset URLs by the mirror layer.
+mirror. The deployed artifact is the built `dist/` bundle. This branch
+(refactor/cleancode-11449) commits assets `index-DEb6NQQN.js`,
+`index-D755bMaq.css` (re-read from `dist/` at MC 11516 commit time; the wave
+R3b rebuild, byte-confirmed unchanged by the MC 11516 api.js prune); the
+mirror still serves master's last build `index-3lA3NMGh.js` (VERIFIED by live
+probe 2026-10-27) until this branch lands on master and re-mirrors. The
+backend serves the SPA from `dist/` (`/assets` mount + SPA catch-all) under
+the `/affar/` prefix. `src/api.js` uses a relative `api` base so requests stay
+inside the `/affar/` prefix behind the reverse proxy. hosting.yaml sets
+`cachebust: all`; cachebust `?v=` query params are appended to asset URLs by
+the mirror layer.
