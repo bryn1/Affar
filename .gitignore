@@ -5,3 +5,10 @@ affar.db-shm
 affar.db-wal
 node_modules/
 .pytest_cache/
+# MC 11516 rank 22 — versioned exclusions (was: only .git/info/exclude, lost
+# on every fresh clone). Audit trail + browser/scratch dirs live HOST-LOCAL:
+# findings are copied to the MC card at close, the raw artifacts are never
+# committed. Do not move them into tracked paths.
+.tmp/
+.playwright-mcp/
+.audits/
