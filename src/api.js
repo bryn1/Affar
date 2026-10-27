@@ -83,21 +83,18 @@ export function listItems(token, { active } = {}) {
   return request('/items' + qs, { token })
 }
 export function createItem(token, item) { return request('/items', { token, method: 'POST', body: item }) }
-export function updateItem(token, id, item) { return request('/items/' + id, { token, method: 'PUT', body: item }) }
 // MC 1175.5 — avaktivering (flaggan heter `active` på C8-ytan, ActivePatch på wire)
 export function setItemActive(token, id, is_active) { return request('/items/' + id + '/active', { token, method: 'PATCH', body: { is_active } }) }
 
 // ---------- customers (C10) ----------
 export function listCustomers(token) { return request('/customers', { token }) }
 export function createCustomer(token, customer) { return request('/customers', { token, method: 'POST', body: customer }) }
-export function updateCustomer(token, id, customer) { return request('/customers/' + id, { token, method: 'PUT', body: customer }) }
 // MC 1175.5 — avaktivering (ny order till avaktiverad kund -> 410)
 export function setCustomerActive(token, id, is_active) { return request('/customers/' + id + '/active', { token, method: 'PATCH', body: { is_active } }) }
 
 // ---------- suppliers (C12) ----------
 export function listSuppliers(token) { return request('/suppliers', { token }) }
 export function createSupplier(token, supplier) { return request('/suppliers', { token, method: 'POST', body: supplier }) }
-export function updateSupplier(token, id, supplier) { return request('/suppliers/' + id, { token, method: 'PUT', body: supplier }) }
 // MC 1175.5 — avaktivering (ny PO till avaktiverad leverantör -> 410)
 export function setSupplierActive(token, id, is_active) { return request('/suppliers/' + id + '/active', { token, method: 'PATCH', body: { is_active } }) }
 
