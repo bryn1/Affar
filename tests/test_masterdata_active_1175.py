@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token
+from conftest import auth_headers
 from app.database import get_engine, init_db
 
 
@@ -44,7 +44,7 @@ def _client() -> TestClient:
 
 
 def _hdr(role: str, uid: int = 1) -> dict:
-    return {"Authorization": f"Bearer {create_access_token(uid, role)}"}
+    return auth_headers(role)
 
 
 def _mk_item(client, sku="SKU-A1175") -> int:

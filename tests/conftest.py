@@ -42,3 +42,38 @@ def _fresh_db():
     drop_all()
     init_db()
     yield
+
+
+# ---------------------------------------------------------------------------
+# Shared auth helper (MC 11468 — JWT revocation)
+# ---------------------------------------------------------------------------
+
+
+def auth_headers(role: str) -> dict:
+    """Bearer headers for a live active User row with *role* (query-or-create).
+
+    MC 11468 made the auth dependencies read role + is_active from the DB on
+    every request, so tests must authenticate as a real seeded user — a
+    forged role claim no longer grants anything. The autouse _fresh_db reset
+    scopes these auth-<role> users to the current test; query-or-create keeps
+    re-calls within one test off the username UNIQUE constraint.
+    """
+    from sqlalchemy.orm import Session
+
+    from app.auth import create_access_token, hash_password
+    from app.database import get_engine
+    from app.models import User
+
+    with Session(get_engine()) as s:
+        user = s.query(User).filter_by(username=f"auth-{role}").first()
+        if user is None:
+            user = User(
+                username=f"auth-{role}",
+                password_hash=hash_password("test-password"),
+                role=role,
+            )
+            s.add(user)
+            s.flush()  # populate user.id
+        s.commit()  # with Session closes without committing — persist for real
+        token = create_access_token(user.id, user.role)
+    return {"Authorization": f"Bearer {token}"}

@@ -31,7 +31,7 @@ _cfg.JWT_ALGORITHM = "HS256"
 _cfg.ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 from app.database import get_session  # noqa: E402
-from app.auth import create_access_token  # noqa: E402
+from conftest import auth_headers
 from app.models import Customer, Item, Order  # noqa: E402
 from app.main import create_app  # noqa: E402
 
@@ -71,7 +71,7 @@ def seed_base():
 
 
 def _auth(client, role):
-    return {"Authorization": f"Bearer {create_access_token(1, role)}"}
+    return auth_headers(role)
 
 
 def _customer_id(client):

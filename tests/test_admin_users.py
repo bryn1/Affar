@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth import create_access_token, hash_password  # noqa: E402
 from app.database import get_engine, init_db  # noqa: E402
 from app.models import ROLES, User  # noqa: E402
+from conftest import auth_headers
 
 
 def _seed_admin_and_client():
@@ -53,8 +54,8 @@ def _seed_extra_user(**kwargs):
 
 def test_list_requires_admin():
     client, _ = _seed_admin_and_client()
-    non_admin = create_access_token(user_id=9, role="sales")
-    resp = client.get("/api/admin/users", headers={"Authorization": "Bearer " + non_admin})
+    non_admin = auth_headers("sales")
+    resp = client.get("/api/admin/users", headers=non_admin)
     assert resp.status_code == 403
 
 
@@ -80,8 +81,8 @@ def test_list_returns_created_users():
 
 def test_create_user_requires_admin():
     client, _ = _seed_admin_and_client()
-    non_admin = create_access_token(user_id=9, role="customer")
-    resp = client.post("/api/admin/users", headers={"Authorization": "Bearer " + non_admin},
+    non_admin = auth_headers("customer")
+    resp = client.post("/api/admin/users", headers=non_admin,
                        json={"username": "ny", "role": "sales", "password": "hemligt"})
     assert resp.status_code == 403
 
@@ -136,8 +137,8 @@ def test_patch_update_role_and_email():
 def test_patch_requires_admin():
     client, _ = _seed_admin_and_client()
     uid = _seed_extra_user(username="nisse")
-    non_admin = create_access_token(user_id=9, role="sales")
-    resp = client.patch("/api/admin/users/" + str(uid), headers={"Authorization": "Bearer " + non_admin},
+    non_admin = auth_headers("sales")
+    resp = client.patch("/api/admin/users/" + str(uid), headers=non_admin,
                         json={"is_active": False})
     assert resp.status_code == 403
 

@@ -29,7 +29,7 @@ _cfg.JWT_ALGORITHM = "HS256"
 _cfg.ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 from app.database import get_engine, init_db  # noqa: E402
-from app.auth import create_access_token  # noqa: E402
+from conftest import auth_headers
 from app.main import create_app  # noqa: E402
 from app.models import Item, Supplier  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
@@ -42,7 +42,7 @@ def client():
 
 
 def _hdr(role="admin", uid=1):
-    return {"Authorization": f"Bearer {create_access_token(uid, role)}"}
+    return auth_headers(role)
 
 
 def _seed(client):

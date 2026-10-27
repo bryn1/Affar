@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.auth import create_access_token  # noqa: E402
+from conftest import auth_headers
 from app.database import get_engine, init_db  # noqa: E402
 from app.models import Item, PurchaseOrder, Supplier  # noqa: E402
 
@@ -37,7 +37,7 @@ def _make_app_client() -> TestClient:
 
 
 def _auth_header(role: str = "admin", uid: int = 10) -> dict:
-    return {"Authorization": f"Bearer {create_access_token(uid, role)}"}
+    return auth_headers(role)
 
 
 def _seed_env(item_qty: int = 100) -> tuple[Supplier, Item]:

@@ -30,7 +30,7 @@ _cfg.SECRET_KEY = "test-secret-not-for-prod-0123456789abcdef"
 _cfg.JWT_ALGORITHM = "HS256"
 _cfg.ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-from app.auth import create_access_token  # noqa: E402
+from conftest import auth_headers
 from app.models import Customer, DeliveryTrack, Item, TrackingEvent  # noqa: E402
 from app.main import create_app  # noqa: E402
 
@@ -61,7 +61,7 @@ def seed_order(client):
         ids["item_id"] = it.id
         s.commit()
 
-    auth = {"Authorization": f"Bearer {create_access_token(1, 'sales')}"}
+    auth = auth_headers("sales")
     r = client.post("/api/orders", headers=auth, json={
         "customer_id": ids["customer_id"],
         "lines": [{"item_id": ids["item_id"], "qty": 2}],
@@ -77,7 +77,7 @@ def seed_order(client):
 
 
 def _do_auth(role):
-    return {"Authorization": f"Bearer {create_access_token(1, role)}"}
+    return auth_headers(role)
 
 
 def _query_track(order_id):

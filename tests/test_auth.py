@@ -8,6 +8,8 @@ Real executed checks:
      200 (allowed role) — exercised through a tiny protected FastAPI app
   5. C6 POST /api/auth/login  correct creds -> TokenResponse; wrong -> 401
   6. C6 GET  /api/auth/me     valid Bearer -> UserOut; missing/invalid -> 401
+  7. MC 11468 revocation      deactivated / demoted users' issued tokens lose
+     privileges immediately (role gate reads the live DB row)
 """
 
 import time
@@ -105,7 +107,8 @@ def test_require_role_invalid_token_401():
 
 def test_require_role_not_allowed_403():
     client = TestClient(_guard_app)
-    token = create_access_token(user_id=2, role="sales")  # not in [admin]
+    uid = _seed_user(username="guard-sales", password="x", role="sales")
+    token = create_access_token(user_id=uid, role="sales")  # not in [admin]
     resp = client.get("/admin", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
     assert resp.json()["detail"] == "Insufficient permissions"
@@ -113,7 +116,8 @@ def test_require_role_not_allowed_403():
 
 def test_require_role_allowed_multi_200():
     client = TestClient(_guard_app)
-    token = create_access_token(user_id=3, role="finance")
+    uid = _seed_user(username="guard-finance", password="x", role="finance")
+    token = create_access_token(user_id=uid, role="finance")
     resp = client.get("/finance-or-admin", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     assert resp.json()["role"] == "finance"
@@ -151,6 +155,53 @@ def test_roles_closed_set_matches_cf():
     from app.models import ROLES as model_roles
 
     assert ROLES == model_roles
+
+
+# ---------------------------------------------------------------------------
+# MC 11468 (audit rank 5) — JWT revocation: the DB row is the live authority
+# ---------------------------------------------------------------------------
+
+
+def _mutate_user(uid: int, **changes):
+    with Session(get_engine()) as s:
+        s.query(User).filter(User.id == uid).update(changes)
+        s.commit()
+
+
+def test_deactivated_admin_token_rejected_401():
+    # (a) An issued admin token stops working the moment the admin row is
+    # deactivated — same 401 semantics as an invalid token, no 24 h window.
+    uid = _seed_user(username="ghost-admin", password="x", role="admin")
+    token = create_access_token(user_id=uid, role="admin")
+    client = TestClient(_guard_app)
+    assert client.get(
+        "/admin", headers={"Authorization": f"Bearer {token}"}
+    ).status_code == 200  # live while the row is active
+    _mutate_user(uid, is_active=False)
+    resp = client.get("/admin", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid or expired token"
+
+
+def test_demoted_user_old_token_rejected_on_former_role_route_403():
+    # (b) admin demoted to sales in the DB: the old admin-claim token is now
+    # rejected on the admin-only route — the gate uses the DB role, not the
+    # claim.
+    uid = _seed_user(username="demoted", password="x", role="admin")
+    token = create_access_token(user_id=uid, role="admin")
+    client = TestClient(_guard_app)
+    assert client.get(
+        "/admin", headers={"Authorization": f"Bearer {token}"}
+    ).status_code == 200
+    _mutate_user(uid, role="sales")
+    resp = client.get("/admin", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Insufficient permissions"
+    # A former-role route (finance|admin) is likewise closed to the demoted row.
+    resp2 = client.get(
+        "/finance-or-admin", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert resp2.status_code == 403
 
 
 # ---------------------------------------------------------------------------

@@ -6,17 +6,21 @@ deliberate differences from the reuse source are:
   * config imports come from ``app.config`` (affärssystemet) not ``src.config``
   * the ``ROLES`` tuple is declared here (closed set C-F) and matches the User
     model's ROLES in ``app/models/user.py`` exactly
-  * a ``get_current_user`` dependency is added (verify-token only, NO role
+  * a ``get_current_user`` dependency is added (token + live DB read, NO role
     check) to back the public ``GET /api/auth/me`` endpoint (C6 requires "me"
     to be role-agnostic).
+  * MC 11468 (audit rank 5, JWT revocation): both dependencies re-read the
+    User row from the DB per request — a JWT is a login receipt, not a
+    standing grant, so deactivation/demotion works immediately. One SQLite
+    read per request is deliberate at this scale; no cache by design.
 
 Functions:
     hash_password(password)      → bcrypt hash string
     check_password(password, h)  → bool
     create_access_token(id, role)→ signed JWT (expires ACCESS_TOKEN_EXPIRE_MINUTES)
     verify_token(token)          → dict(user_id, role) or None
-    require_role(allowed)        → FastAPI dependency: 401 / 403 / payload
-    get_current_user             → FastAPI dependency: 401 or payload (no role gate)
+    require_role(allowed)        → FastAPI dependency: 401 / 403 / live user
+    get_current_user             → FastAPI dependency: 401 or live user
 """
 
 from datetime import UTC, datetime, timedelta
@@ -25,8 +29,11 @@ import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
+from sqlalchemy.orm import Session
 
 from app.config import ACCESS_TOKEN_EXPIRE_MINUTES, JWT_ALGORITHM, SECRET_KEY
+from app.database import get_session
+from app.models import User
 
 # C-F fixed point: the closed set of user roles. Same names the User model uses.
 ROLES: tuple[str, ...] = ("admin", "sales", "finance", "procurement", "customer")
@@ -86,9 +93,39 @@ def verify_token(token: str) -> dict | None:
 _scheme = HTTPBearer(auto_error=False)
 
 
+def _unauthorized(detail: str) -> None:
+    """Raise the module's one 401 shape (Bearer challenge always included)."""
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _authenticate(
+    credentials: HTTPAuthorizationCredentials, db: Session
+) -> dict:
+    """Resolve the Bearer token to the live User row: {user_id, role} from DB.
+
+    MC 11468: the User row is re-read on every request, so a deleted or
+    deactivated user — or a changed role — takes effect immediately.
+    Unknown/inactive users get the same 401 semantics as an invalid token;
+    the returned role is the DB role, never the token claim.
+    """
+    if credentials is None:
+        _unauthorized("Not authenticated")
+    claims = verify_token(credentials.credentials)
+    if claims is None:
+        _unauthorized("Invalid or expired token")
+    user = db.query(User).filter(User.id == claims["user_id"]).first()
+    if user is None or not user.is_active:
+        _unauthorized("Invalid or expired token")  # revocation is indistinguishable
+    return {"user_id": user.id, "role": user.role}
+
+
 def require_role(allowed_roles: list[str]):
-    """Return a FastAPI dependency rejecting requests whose JWT lacks one of
-    *allowed_roles*.
+    """Return a FastAPI dependency rejecting requests whose current DB role
+    is not one of *allowed_roles*.
 
     Usage::
 
@@ -96,25 +133,17 @@ def require_role(allowed_roles: list[str]):
         def secret_view(current_user = require_role(["admin"])):
             ...
 
-    Raises 401 when the token is missing/invalid/expired, 403 when the role is
-    present but not in *allowed_roles*.
+    Raises 401 when the token is missing/invalid/expired or the user no
+    longer exists / was deactivated; 403 when the live DB role is not in
+    *allowed_roles*.
     """
 
-    def _dep(credentials: HTTPAuthorizationCredentials = Depends(_scheme)) -> dict:
+    def _dep(
+        credentials: HTTPAuthorizationCredentials = Depends(_scheme),
+        db: Session = Depends(get_session),
+    ) -> dict:
         """Inner dep — called by FastAPI for every protected route."""
-        if credentials is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        user = verify_token(credentials.credentials)
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        user = _authenticate(credentials, db)
         if user["role"] not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -127,23 +156,12 @@ def require_role(allowed_roles: list[str]):
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_scheme),
+    db: Session = Depends(get_session),
 ) -> dict:
-    """FastAPI dependency verifying the Bearer JWT WITHOUT a role check.
+    """FastAPI dependency resolving the Bearer JWT to the live User row,
+    WITHOUT a role check (public ``GET /api/auth/me``, C6 role-agnostic).
 
-    Used by the public ``GET /api/auth/me`` (C6: "verify_token only, no role
-    requirement"). Raises 401 when the token is missing/invalid/expired.
+    Raises 401 with the same semantics as an invalid token when the token is
+    missing/invalid/expired or the user no longer exists / was deactivated.
     """
-    if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    user = verify_token(credentials.credentials)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
+    return _authenticate(credentials, db)

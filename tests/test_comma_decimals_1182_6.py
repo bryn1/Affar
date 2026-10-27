@@ -20,7 +20,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.auth import create_access_token  # noqa: E402
+from conftest import auth_headers
 from app.database import get_engine, init_db  # noqa: E402
 from app.models import Item  # noqa: E402
 from app.schemas.item import ItemIn  # noqa: E402
@@ -82,7 +82,7 @@ def _make_app_client() -> TestClient:
 def test_post_items_comma_decimal_is_200_not_422():
     init_db()
     client = _make_app_client()
-    header = {"Authorization": f"Bearer {create_access_token(10, 'admin')}"}
+    header = auth_headers("admin")
     r = client.post(
         "/api/items",
         headers=header,
