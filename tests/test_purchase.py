@@ -287,3 +287,33 @@ def test_backward_transition_ordered_to_draft_409():
                         json={"status": "draft"},
                         headers=_auth_header("admin"))
     assert resp.status_code == 409, resp.text
+
+
+# ---------------------------------------------------------------------------
+# MC-C2 (11469) rank 2 — the PO list row carries the server-summed total
+# ---------------------------------------------------------------------------
+
+def test_list_rows_carry_server_summed_total():
+    """PurchaseOrderOut.total = service-side sum of line_totals (backend owns it).
+
+    Purchase.jsx renders r.total for the Totalt column; the view must never
+    re-add lines itself (the class behind the Förfallo/dead-name findings).
+    """
+    sup, item = _seed_env()
+    client = _make_app_client()
+    payload = {
+        "supplier_id": sup.id,
+        "lines": [
+            {"item_id": item.id, "qty": 4, "unit_cost": "25.50"},  # 102.00
+            {"item_id": item.id, "qty": 2, "unit_cost": "9.99"},   #  19.98
+        ],
+    }
+    created = client.post(
+        "/api/purchase-orders", json=payload, headers=_auth_header("admin")
+    ).json()
+    rows = client.get("/api/purchase-orders", headers=_auth_header("admin")).json()
+    row = next(r for r in rows if r["id"] == created["id"])
+    assert row["total"] == "121.98", row
+    # The single-PO read serializes the same schema and carries it too.
+    assert client.get(f"/api/purchase-orders/{created['id']}",
+                      headers=_auth_header("admin")).json()["total"] == "121.98"

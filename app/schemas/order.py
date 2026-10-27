@@ -28,7 +28,10 @@ class OrderLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: int = Field(gt=0)
-    qty: int = Field(ge=1)
+    # Bounded above (MC-C2/11469 P4-qty): an absurd qty is a schema 422 here,
+    # never a Decimal/money-path crash later (10**30 * price overflowed the
+    # service arithmetic into a 500).
+    qty: int = Field(ge=1, le=1_000_000)
 
 
 class OrderIn(BaseModel):

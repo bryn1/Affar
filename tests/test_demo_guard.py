@@ -126,3 +126,24 @@ class _FakeReq:
 class _Client:
     def __init__(self, host):
         self.host = host
+
+
+def test_429_carries_cors_header(monkeypatch):
+    """MC-C2 (11469) P4-CORS: CORS must stay the outermost middleware.
+
+    A throttled 429 that skipped CORS arrives in the SPA as an opaque CORS
+    error (the browser withholds it from fetch), hiding the "demo throttled"
+    message. Origin is required — CORSMiddleware passes origin-less
+    requests through untouched — and the default dev config allows "*".
+    """
+    mod = importlib.import_module("app.demo_guard")
+    monkeypatch.setattr(mod, "CAPACITY", 1)
+    create_app = importlib.import_module("app.main").create_app
+    client = TestClient(create_app())
+
+    headers = {"CF-Connecting-IP": "203.0.113.60", "Origin": "http://localhost:5173"}
+    first = client.post("/api/items", json=_item_payload("cors-429-a"), headers=headers)
+    assert first.status_code != 429, "first write must not be throttled"
+    blocked = client.post("/api/items", json=_item_payload("cors-429-b"), headers=headers)
+    assert blocked.status_code == 429, blocked.status_code
+    assert blocked.headers.get("access-control-allow-origin") == "*", dict(blocked.headers)

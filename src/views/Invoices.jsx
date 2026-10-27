@@ -150,7 +150,6 @@ export default function Invoices() {
     },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
     { key: 'total', label: 'Totalt', align: 'num', render: (r) => <Money value={r.total} /> },
-    { key: 'due_date', label: 'Förfallo', render: (r) => r.due_date || <span className="muted">—</span> },
   ]
 
   return (

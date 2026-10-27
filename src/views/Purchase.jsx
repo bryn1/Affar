@@ -120,7 +120,7 @@ export default function Purchase() {
     { key: 'id', label: 'Nr', render: (r) => <span className="mono">#{r.id}</span> },
     {
       key: 'supplier_id', label: 'Leverantör', render: (r) =>
-        r.supplier_name || (suppliers.find((s) => s.id === r.supplier_id)?.name) || `#${r.supplier_id}`,
+        suppliers.find((s) => s.id === r.supplier_id)?.name || `#${r.supplier_id}`,
     },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
     { key: 'total', label: 'Totalt', align: 'num', render: (r) => <Money value={r.total} /> },

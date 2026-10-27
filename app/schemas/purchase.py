@@ -53,11 +53,17 @@ class PurchaseOrderLineOut(BaseModel):
 
 
 class PurchaseOrderOut(BaseModel):
-    """PurchaseOrder representation on the wire — never a raw ORM object."""
+    """PurchaseOrder representation on the wire — never a raw ORM object.
+
+    ``total`` (MC-C2/11469 rank 2) is the server-summed line totals, projected
+    in po_to_dict — the backend owns the number the list renders; the view
+    never re-adds lines. Bounded like the order total (11469 mirrors C23).
+    """
 
     id: int
     supplier_id: int
     status: str
+    total: Decimal = Field(ge=0, max_digits=14, decimal_places=2)
     lines: list[PurchaseOrderLineOut] = Field(default_factory=list)
 
 

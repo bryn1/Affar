@@ -167,7 +167,7 @@ export default function Orders() {
     { key: 'id', label: 'Nr', render: (r) => <span className="mono">#{r.id}</span> },
     {
       key: 'customer_id', label: 'Kund', render: (r) =>
-        r.customer_name || (customers.find((c) => c.id === r.customer_id)?.name) || `#${r.customer_id}`,
+        customers.find((c) => c.id === r.customer_id)?.name || `#${r.customer_id}`,
     },
     { key: 'status', label: 'Status', render: (r) => <StatusBadge status={r.status} /> },
     { key: 'total', label: 'Totalt', align: 'num', render: (r) => <Money value={r.total} /> },

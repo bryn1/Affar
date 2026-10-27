@@ -14,6 +14,8 @@ the purchase side supply cost) and a PO is makulerings-bar via the status
 PATCH with ``cancel`` (draft/ordered only; received is 409, cancelled 410).
 """
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -102,10 +104,18 @@ def _line_to_dict(line) -> dict:
 
 
 def po_to_dict(po) -> dict:
-    """Project an ORM PurchaseOrder onto the POut field set (C23 — no bare ORM)."""
+    """Project an ORM PurchaseOrder onto the POut field set (C23 — no bare ORM).
+
+    ``total`` (MC-C2/11469 rank 2) is the sum of the server-computed line
+    totals — summed here, in the backend, never re-added by the list view.
+    """
+    total = sum((line.line_total for line in po.lines), Decimal("0.00")).quantize(
+        Decimal("0.01")
+    )
     return {
         "id": po.id,
         "supplier_id": po.supplier_id,
         "status": po.status,
+        "total": total,
         "lines": [_line_to_dict(line) for line in po.lines],
     }

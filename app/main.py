@@ -81,10 +81,20 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
+    # MC 707.2 G3: the app is published on a public URL — throttle mutating
+    # requests per visitor (token bucket, hotells/bibliotek demo_guard pattern).
+    # Reads are never throttled (hotell app/main.py MC 2034.2 pattern).
+    # Added FIRST on purpose: add_middleware() makes the LAST-added layer the
+    # OUTERMOST one, so the CORSMiddleware below wraps the guard and a
+    # throttled 429 still carries the CORS headers (MC-C2/11469 P4-CORS; the
+    # pre-fix order here was inverted, leaving 429s unreadable in the SPA).
+    app.add_middleware(DemoWriteGuard)
+
     # CORS for the SPA (dev, per C3). Origins are read from app.config when
     # the app-db-config card lands; until then a permissive dev default keeps
     # the local frontend reachable. Not hardened-secret territory — config is
-    # read at runtime, never hardcoded.
+    # read at runtime, never hardcoded. Outermost: every response, throttled
+    # or not, must carry the Access-Control-* headers.
     origins = getattr(_cfg, "CORS_ORIGINS", None) or ["*"]
     app.add_middleware(
         CORSMiddleware,
@@ -93,12 +103,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    # MC 707.2 G3: the app is published on a public URL — throttle mutating
-    # requests per visitor (token bucket, hotells/bibliotek demo_guard pattern).
-    # Added AFTER CORS so CORS stays the outermost middleware; reads are never
-    # throttled (hotell app/main.py MC 2034.2 pattern).
-    app.add_middleware(DemoWriteGuard)
 
     for router in ROUTES:
         app.include_router(router)

@@ -269,3 +269,17 @@ def test_staff_order_out_exposes_tracking_id(client, seed_base):
     listed = client.get("/api/orders", headers=_auth(client, "sales")).json()
     match = [o for o in listed if o["id"] == oid]
     assert match and match[0]["tracking_id"] == tid
+
+
+def test_huge_qty_is_422_not_crash(client, seed_base):
+    """MC-C2 (11469) P4-qty: qty is bounded — 10**30 must be a schema 422.
+
+    Without the upper bound the value passes validation and explodes later
+    in the Decimal/money path as an unhandled 500; the wire owns the bound.
+    """
+    body = {
+        "customer_id": seed_base["customer_id"],
+        "lines": [{"item_id": seed_base["laptop"], "qty": 10**30}],
+    }
+    resp = client.post("/api/orders", json=body, headers=_auth(client, "sales"))
+    assert resp.status_code == 422, resp.text
