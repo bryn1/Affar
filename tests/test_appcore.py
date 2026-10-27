@@ -10,19 +10,16 @@ run.py: uvicorn.run(create_app(), host="0.0.0.0",
 """
 
 import os
-import subprocess
 import sys
-import tempfile
 
 import pytest
 from fastapi import FastAPI
 
-# Point the database + auth config before importing the app (mirrors the
-# C1 shape the app-db-config card will supply at integration).
-_tmp_db_fd, _tmp_db_path = tempfile.mkstemp(suffix=".db")
-os.close(_tmp_db_fd)
-os.environ["AFFAR_DATABASE_URL"] = f"sqlite:///{_tmp_db_path}"
-
+# MC 11540: the AFFAR_DATABASE_URL module-level os.environ write that used to
+# sit here is removed — the DB URL belongs to tests/conftest.py (session temp
+# FILE sqlite). A module-level env override that is never restored is exactly
+# the test-order bleed this card kills; the app config it imported first then
+# cached a URL chosen by collection order, not by the test that needs it.
 import app.config as _cfg  # noqa: E402
 
 _cfg.SECRET_KEY = "test-secret-not-for-prod-0123456789abcdef"

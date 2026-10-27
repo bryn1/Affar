@@ -9,12 +9,16 @@ Real executed checks:
      via the documented closed tuples (the closed set is the contract)
 """
 
-import os
 from decimal import Decimal
 
-# Point the database at an in-memory sqlite BEFORE importing app.database.
-os.environ["AFFAR_DATABASE_URL"] = "sqlite:///:memory:"
-
+# MC 11540: this module used to write AFFAR_DATABASE_URL="sqlite:///:memory:"
+# into os.environ at import time and never restore it. Whichever test module
+# happened to be collected first then decided the URL app.config cached, and
+# a :memory: engine (SQLAlchemy per-thread pool) hands every other test file
+# its own empty copy — the classic test-order env-bleed (it made the
+# test_models -> test_appcore order fail "no such table: users"). The DB URL
+# is conftest's job: it points at a session temp FILE sqlite that is visible
+# to all threads (TestClient included). Do not re-add module-level env writes.
 from sqlalchemy import inspect  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
